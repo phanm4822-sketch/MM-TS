@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments and editor files
+.env
+.venv/
+venv/
+env/
+.idea/
+.vscode/
+.DS_Store
+
+# Generated experiment artifacts
+/cache/
+/runs/
+/results/
+/checkpoints/
+/logs/
+/wandb/
+/tensorboard/
+/best_result/
+/ablation_result/
+/*_result/
+/*result/
+/few_shot/
+/zero_shot/
+
+# Datasets are documented in README but not shipped in the repository.
+/datasets/
+
+# Local foundation-model checkpoints
+Qwen3-VL-2B-Instruct/
+models--*/
+hf_cache/
+
+# Large generated arrays and model weights
+*.npz
+*.npy
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Runtime noise
+*.log
+*.pid
+*.out
+*.err

@@ -1,0 +1,10 @@
+torch>=2.2
+transformers==4.57.3
+accelerate>=0.28
+peft>=0.10
+numpy>=1.23
+pandas>=1.5
+pillow>=10.0
+safetensors
+sentencepiece
+protobuf
