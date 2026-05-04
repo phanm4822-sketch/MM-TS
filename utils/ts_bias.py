@@ -1,5 +1,3 @@
-import math
-
 import torch
 
 
@@ -67,7 +65,6 @@ def build_ts_attention_bias(
     bias = torch.empty((bsz, ts_len, ts_len), device=device, dtype=dtype)
     # Temporal tokens are flattened as channel-major: index(c, p) = c * P + p.
     var_offsets = torch.arange(num_vars, device=device) * num_patches
-    decay_base = max(float(num_patches) / 3.0, 1.0)
     for i in range(num_patches):
         rows = var_offsets + i
         for j in range(num_patches):
@@ -75,9 +72,7 @@ def build_ts_attention_bias(
             if i == j:
                 block = vid[:, i]
             else:
-                local_mix = 0.5 * (vid[:, i] + vid[:, j])
-                alpha = math.exp(-abs(i - j) / decay_base)
-                block = local_mix * alpha + img * (1.0 - alpha)
+                block = img
             bias[:, rows[:, None], cols[None, :]] = block
     return bias
 
