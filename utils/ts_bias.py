@@ -65,20 +65,20 @@ def build_ts_attention_bias(
     bsz = int(img.shape[0])
     ts_len = num_patches * num_vars
     bias = torch.empty((bsz, ts_len, ts_len), device=device, dtype=dtype)
+    # Temporal tokens are flattened as channel-major: index(c, p) = c * P + p.
+    var_offsets = torch.arange(num_vars, device=device) * num_patches
     decay_base = max(float(num_patches) / 3.0, 1.0)
     for i in range(num_patches):
-        i0 = i * num_vars
-        i1 = i0 + num_vars
+        rows = var_offsets + i
         for j in range(num_patches):
-            j0 = j * num_vars
-            j1 = j0 + num_vars
+            cols = var_offsets + j
             if i == j:
                 block = vid[:, i]
             else:
                 local_mix = 0.5 * (vid[:, i] + vid[:, j])
                 alpha = math.exp(-abs(i - j) / decay_base)
                 block = local_mix * alpha + img * (1.0 - alpha)
-            bias[:, i0:i1, j0:j1] = block
+            bias[:, rows[:, None], cols[None, :]] = block
     return bias
 
 
@@ -121,8 +121,8 @@ def build_full_ts_attention_bias(
             vid = _combine_stats(vid_dtw, vid_cov, vid_pear, weights, device=device, dtype=dtype, norm_mode=norm_mode)
             # Collapse variable-to-variable structure into a per-query relevance score
             # so TS queries can also attend more strongly to useful visual prefixes.
-            img_row = img.mean(dim=-1).unsqueeze(1).expand(-1, num_patches, -1).reshape(img.shape[0], -1)
-            vid_row = vid.mean(dim=-1).reshape(vid.shape[0], -1)
+            img_row = img.mean(dim=-1).unsqueeze(-1).expand(-1, -1, num_patches).reshape(img.shape[0], -1)
+            vid_row = vid.mean(dim=-1).permute(0, 2, 1).contiguous().reshape(vid.shape[0], -1)
             img_row = _normalize_cross_rows(img_row)
             vid_row = _normalize_cross_rows(vid_row)
 
