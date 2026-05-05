@@ -91,7 +91,6 @@ run_experiment etth1 datasets/ETTh1.csv 96 96 32 20 3 0.0002 0.0012 \
   --ts_bias_dtw_weight 2.5 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.5 \
-  --ts_bias_cross_vision_scale 0.02 \
   --ts_residual_mode B \
   --ts_residual_activation relu \
   --ts_pooling tail_concat \
@@ -110,7 +109,6 @@ run_experiment etth1 datasets/ETTh1.csv 96 192 32 6 10 0.0002 0.0012 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
-  --ts_bias_cross_vision_scale 0.01 \
   --ts_residual_mode B \
   --ts_residual_activation relu \
   --ts_pooling tail_concat \
@@ -149,7 +147,6 @@ run_experiment etth1 datasets/ETTh1.csv 96 720 32 1 3 0.00014 0.0010164689213342
   --ts_bias_dtw_weight 2.3 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.3 \
-  --ts_bias_cross_vision_scale 0.01 \
   --ts_bias_norm per_stat_tanh \
   --ts_residual_mode B \
   --ts_residual_activation relu \
@@ -242,7 +239,6 @@ run_experiment ettm1 datasets/ETTm1.csv 96 96 32 20 4 0.00024 0.001 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
-  --ts_bias_cross_vision_scale 0.01 \
   --ts_bias_norm per_stat_tanh \
   --ts_residual_mode B \
   --ts_residual_activation relu \
@@ -381,12 +377,17 @@ run_experiment weather datasets/weather.csv 96 720 32 30 4 0.0002573176622078198
 # EXCHANGE
 run_experiment exchange datasets/exchange_rate.csv 96 96 32 20 3 0.00015 5e-05 \
   --ts_attn_bias_layers all \
+  --use_ts_residual true \
+  --ts_residual_mode B \
+  --ts_residual_activation relu \
   --revin_subtract_last true \
   --eval_test_during_train true
 run_experiment exchange datasets/exchange_rate.csv 96 192 32 20 3 0.00015 5e-05 \
   --lr_schedule cosine \
   --min_lr_ratio 0.05 \
   --ts_attn_bias_layers all \
+  --use_ts_residual true \
+  --ts_residual_mode B \
   --ts_residual_activation relu \
   --pred_context_mode all \
   --revin_subtract_last true
@@ -395,7 +396,8 @@ run_experiment exchange datasets/exchange_rate.csv 96 336 32 20 3 0.00013 3e-05 
   --min_lr_ratio 0.05 \
   --text_scale 1.05 \
   --ts_attn_bias_layers all \
-  --ts_bias_cross_vision_scale 0.001 \
+  --use_ts_residual true \
+  --ts_residual_mode B \
   --ts_residual_activation relu \
   --pred_head_mode mlp \
   --pred_context_mode all \
@@ -405,7 +407,8 @@ run_experiment exchange datasets/exchange_rate.csv 96 720 32 20 3 0.0001 8e-05 \
   --min_lr_ratio 0.05 \
   --text_scale 1.05 \
   --ts_attn_bias_layers 0,1,26 \
-  --ts_bias_cross_vision_scale 0.001 \
+  --use_ts_residual true \
+  --ts_residual_mode B \
   --ts_residual_activation relu \
   --pred_head_mode mlp \
   --pred_context_mode all \
