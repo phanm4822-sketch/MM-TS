@@ -61,7 +61,7 @@ BASE_DEFAULTS = {
     "time_embed_scale": 1.0,
     "use_ts_attn_bias": True,
     "ts_attn_bias_layer": 0,
-    "ts_attn_bias_layers": "",
+    "ts_attn_bias_layers": "0,1",
     "ts_bias_dtw_weight": 1.0,
     "ts_bias_cov_weight": 0.5,
     "ts_bias_pear_weight": 2.0,

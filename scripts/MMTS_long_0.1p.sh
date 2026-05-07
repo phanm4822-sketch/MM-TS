@@ -86,7 +86,7 @@ run_experiment etth1 datasets/ETTh1.csv 96 96 32 20 3 0.0002 0.0012 \
   --min_lr_ratio 0.05 \
   --use_ts_residual true \
   --lora_alpha 8 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_scale 0.06 \
   --ts_bias_dtw_weight 2.5 \
   --ts_bias_cov_weight 2.0 \
@@ -104,7 +104,7 @@ run_experiment etth1 datasets/ETTh1.csv 96 192 32 6 10 0.0002 0.0012 \
   --min_lr_ratio 0.05 \
   --use_ts_residual true \
   --lora_alpha 8 \
-  --ts_attn_bias_layers 0,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_scale 0.06 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
@@ -123,7 +123,7 @@ run_experiment etth1 datasets/ETTh1.csv 96 336 32 20 3 0.00016 0.001016468921334
   --use_ts_residual true \
   --lora_alpha 8 \
   --lora_dropout 0.1 \
-  --ts_attn_bias_layers 0,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.0 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_norm per_stat_tanh \
@@ -143,7 +143,7 @@ run_experiment etth1 datasets/ETTh1.csv 96 720 32 1 3 0.00014 0.0010164689213342
   --img_scale 1.05 \
   --vid_scale 1.05 \
   --text_scale 1.05 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.3 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.3 \
@@ -200,7 +200,7 @@ run_experiment etth2 datasets/ETTh2.csv 96 336 32 20 3 0.00016 0.001016468921334
   --use_ts_residual true \
   --lora_alpha 8 \
   --lora_dropout 0.1 \
-  --ts_attn_bias_layers 0,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.0 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_norm per_stat_tanh \
@@ -217,7 +217,7 @@ run_experiment etth2 datasets/ETTh2.csv 96 720 32 20 3 0.00016 0.001016468921334
   --min_lr_ratio 0.05 \
   --use_ts_residual true \
   --lora_alpha 8 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.0 \
   --ts_bias_cov_weight 2.0 \
   --ts_residual_mode B \
@@ -235,7 +235,7 @@ run_experiment ettm1 datasets/ETTm1.csv 96 96 32 20 4 0.00024 0.001 \
   --min_lr_ratio 0.05 \
   --use_ts_residual true \
   --lora_alpha 8 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -248,7 +248,7 @@ run_experiment ettm1 datasets/ETTm1.csv 96 96 32 20 4 0.00024 0.001 \
   --eval_test_during_train true
 run_experiment ettm1 datasets/ETTm1.csv 96 192 32 30 3 0.00024 0.001 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -261,7 +261,7 @@ run_experiment ettm1 datasets/ETTm1.csv 96 192 32 30 3 0.00024 0.001 \
   --eval_test_during_train true
 run_experiment ettm1 datasets/ETTm1.csv 96 336 32 30 3 0.0002 0.0012 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -274,7 +274,7 @@ run_experiment ettm1 datasets/ETTm1.csv 96 336 32 30 3 0.0002 0.0012 \
   --eval_test_during_train true
 run_experiment ettm1 datasets/ETTm1.csv 96 720 32 30 3 0.00024 0.001 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -289,7 +289,7 @@ run_experiment ettm1 datasets/ETTm1.csv 96 720 32 30 3 0.00024 0.001 \
 # ETTM2
 run_experiment ettm2 datasets/ETTm2.csv 96 96 32 30 3 0.00022 0.0008 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -302,7 +302,7 @@ run_experiment ettm2 datasets/ETTm2.csv 96 96 32 30 3 0.00022 0.0008 \
   --eval_test_during_train true
 run_experiment ettm2 datasets/ETTm2.csv 96 192 32 30 3 0.00022 0.0008 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -315,7 +315,7 @@ run_experiment ettm2 datasets/ETTm2.csv 96 192 32 30 3 0.00022 0.0008 \
   --eval_test_during_train true
 run_experiment ettm2 datasets/ETTm2.csv 96 336 32 30 3 0.0002 0.001 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -328,7 +328,7 @@ run_experiment ettm2 datasets/ETTm2.csv 96 336 32 30 3 0.0002 0.001 \
   --eval_test_during_train true
 run_experiment ettm2 datasets/ETTm2.csv 96 720 32 30 3 0.00022 0.0008 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -376,7 +376,7 @@ run_experiment weather datasets/weather.csv 96 720 32 30 4 0.0002573176622078198
 
 # EXCHANGE
 run_experiment exchange datasets/exchange_rate.csv 96 96 32 20 3 0.00015 5e-05 \
-  --ts_attn_bias_layers all \
+  --ts_attn_bias_layers 0,1 \
   --use_ts_residual true \
   --ts_residual_mode B \
   --ts_residual_activation relu \
@@ -385,7 +385,7 @@ run_experiment exchange datasets/exchange_rate.csv 96 96 32 20 3 0.00015 5e-05 \
 run_experiment exchange datasets/exchange_rate.csv 96 192 32 20 3 0.00015 5e-05 \
   --lr_schedule cosine \
   --min_lr_ratio 0.05 \
-  --ts_attn_bias_layers all \
+  --ts_attn_bias_layers 0,1 \
   --use_ts_residual true \
   --ts_residual_mode B \
   --ts_residual_activation relu \
@@ -395,7 +395,7 @@ run_experiment exchange datasets/exchange_rate.csv 96 336 32 20 3 0.00013 3e-05 
   --lr_schedule cosine \
   --min_lr_ratio 0.05 \
   --text_scale 1.05 \
-  --ts_attn_bias_layers all \
+  --ts_attn_bias_layers 0,1 \
   --use_ts_residual true \
   --ts_residual_mode B \
   --ts_residual_activation relu \
@@ -406,7 +406,7 @@ run_experiment exchange datasets/exchange_rate.csv 96 720 32 20 3 0.0001 8e-05 \
   --lr_schedule cosine \
   --min_lr_ratio 0.05 \
   --text_scale 1.05 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --use_ts_residual true \
   --ts_residual_mode B \
   --ts_residual_activation relu \
@@ -451,7 +451,7 @@ run_experiment ecl datasets/electricity.csv 96 720 2 30 4 0.0002573176622078198 
 # ILLNESS
 run_experiment illness datasets/national_illness.csv 104 24 32 30 3 0.0002573176622078198 0.001016468921334232 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.0 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_norm per_stat_tanh \
@@ -463,7 +463,7 @@ run_experiment illness datasets/national_illness.csv 104 24 32 30 3 0.0002573176
 run_experiment illness datasets/national_illness.csv 104 36 32 30 3 0.0002573176622078198 0.0012 \
   --use_ts_residual true \
   --text_scale 1.05 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.0 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_norm per_stat_tanh \
@@ -477,7 +477,7 @@ run_experiment illness datasets/national_illness.csv 104 36 32 30 3 0.0002573176
   --eval_test_during_train true
 run_experiment illness datasets/national_illness.csv 104 48 32 30 3 0.0002 0.0001 \
   --use_ts_residual true \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
@@ -490,7 +490,7 @@ run_experiment illness datasets/national_illness.csv 104 48 32 30 3 0.0002 0.000
 run_experiment illness datasets/national_illness.csv 104 60 32 30 3 0.0002 0.0001 \
   --use_ts_residual true \
   --text_scale 1.05 \
-  --ts_attn_bias_layers 0,1,26 \
+  --ts_attn_bias_layers 0,1 \
   --ts_bias_dtw_weight 2.2 \
   --ts_bias_cov_weight 2.0 \
   --ts_bias_pear_weight 2.2 \
