@@ -78,12 +78,39 @@ The long-term scripts cover ETTh1, ETTh2, ETTm1, ETTm2, Weather, Exchange, ECL, 
 
 The first run builds the required cache automatically. Cache generation includes Qwen3-VL vision-token precomputation and requires a CUDA GPU.
 
+Additional reproduction scripts:
+
+Ablations on ETTh2 and Weather cover `full`, `w/o Vision`, `w/o Text`, and `w/o TS Bias`.
+
+```bash
+bash scripts/MMTS_ablation.sh
+```
+
+Zero-shot ETT transfer covers the six source-target directions reported in the appendix by default.
+
+```bash
+bash scripts/MMTS_zero_shot.sh
+```
+
+Five repeated-seed runs cover ETTh2 and Weather by default.
+
+```bash
+bash scripts/MMTS_five_runs.sh
+```
+
+Useful filters:
+
+```bash
+DATASETS="etth2" VARIANTS="wo_ts_bias" bash scripts/MMTS_ablation.sh
+TRANSFERS="etth1_to_etth2" bash scripts/MMTS_zero_shot.sh
+SEEDS="2021 2022" DATASETS="weather" bash scripts/MMTS_five_runs.sh
+```
+
 Useful overrides:
 
 ```bash
 GPUS=0 QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct bash scripts/MMTS_long_1.0p.sh
 GPUS=0,1 MODEL_PARALLEL=true bash scripts/MMTS_long_1.0p.sh
-DATASETS="weather" bash scripts/MMTS_long_1.0p.sh --dry_run
 ```
 
 ## Usage
@@ -140,12 +167,12 @@ python -m data_provider.cache.build_cache \
 
 ```text
 .
-├── data_provider/          # dataset loaders and cache builders
-├── exp/                    # training and evaluation loop
-├── layers/                 # MM-TS layers
-├── models/                 # Qwen3-VL loading, encoding, and LoRA helpers
-├── scripts/                # reproduction scripts
-├── utils/                  # rendering, statistics, and Qwen patching
-├── main.py                 # main entry
-└── requirements.txt
+|-- data_provider/
+|-- exp/
+|-- layers/
+|-- models/
+|-- scripts/
+|-- utils/
+|-- main.py
+`-- requirements.txt
 ```
