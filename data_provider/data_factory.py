@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from .data_loader import ElectricityShardDataset, NPZWindowDataset
 from utils import seed_worker
 
-EXPECTED_CACHE_PROTOCOL = "global_standardize_only_v4"
+EXPECTED_CACHE_PROTOCOL = "global_standardize_fullfft_v5"
 
 
 def _load_npz_meta(cache) -> dict:

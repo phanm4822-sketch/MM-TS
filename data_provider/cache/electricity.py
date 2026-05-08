@@ -50,7 +50,7 @@ from data_provider.cache.standard import (  # noqa: E402
 )
 from utils import time_block  # noqa: E402
 from utils.heatmap_render import mats_to_rgb_grid  # noqa: E402
-from utils.ts_stats import compute_three_mats  # noqa: E402
+from utils.ts_stats import compute_three_mats, fft_magnitude_features  # noqa: E402
 
 BASE_DONE_MARKER = "base_complete.json"
 VISION_DONE_MARKER = "vision_complete.json"
@@ -118,11 +118,6 @@ def get_args():
     )
     parser.add_argument("--window_demean", type=str2bool, default=False, help="manual mode: apply per-window de-mean (legacy)")
     parser.add_argument("--window_norm", type=str2bool, default=False, help="manual mode: apply per-window std norm (legacy)")
-
-    parser.add_argument("--fft_dtw", type=str2bool, default=True, help="compute DTW on FFT-domain features")
-    parser.add_argument("--fft_cov", type=str2bool, default=True, help="compute covariance on FFT-domain features")
-    parser.add_argument("--fft_pear", type=str2bool, default=True, help="compute Pearson on FFT-domain features")
-    parser.add_argument("--fft_demean", type=str2bool, default=False, help="apply per-channel de-mean before FFT")
 
     parser.add_argument("--build_workers", type=int, default=8, help="parallel workers for window build")
     parser.add_argument("--build_chunk_size", type=int, default=8, help="windows per worker task chunk")
@@ -287,11 +282,6 @@ def _process_window_chunk(task):
     dtw_tau = cfg["dtw_tau"]
     cov_clip_lo = cfg["cov_clip_lo"]
     cov_clip_hi = cfg["cov_clip_hi"]
-    fft_dtw = cfg["fft_dtw"]
-    fft_cov = cfg["fft_cov"]
-    fft_pear = cfg["fft_pear"]
-    fft_demean = cfg["fft_demean"]
-
     x_mm = _FAST_MEMMAPS["x"]
     y_mm = _FAST_MEMMAPS["y"]
     img_mm = _FAST_MEMMAPS["img_grid"]
@@ -305,16 +295,13 @@ def _process_window_chunk(task):
         x_mm[idx] = x
         y_mm[idx] = y
         x_aux = normalize_window_for_aux(x, eps=1e-5)
+        rel_source = fft_magnitude_features(x_aux)
 
         dtw, cov, pear = compute_three_mats(
-            x_aux,
+            rel_source,
             kind=f"Img sample{idx}",
             dtw_band=dtw_band,
             dtw_eps=dtw_eps,
-            fft_dtw=fft_dtw,
-            fft_cov=fft_cov,
-            fft_pear=fft_pear,
-            fft_demean=fft_demean,
             verbose=False,
         )
         img_mm[idx] = mats_to_rgb_grid(
@@ -328,16 +315,12 @@ def _process_window_chunk(task):
 
         for p in range(num_patches):
             patch_start = p * stride
-            patch = x_aux[patch_start:patch_start + patch_len]
+            patch = rel_source[patch_start:patch_start + patch_len]
             dtw_p, cov_p, pear_p = compute_three_mats(
                 patch,
                 kind=f"Vid sample{idx} patch{p}",
                 dtw_band=min(dtw_band, patch_len),
                 dtw_eps=dtw_eps,
-                fft_dtw=fft_dtw,
-                fft_cov=fft_cov,
-                fft_pear=fft_pear,
-                fft_demean=fft_demean,
                 verbose=False,
             )
             vid_mm[idx, p] = mats_to_rgb_grid(
@@ -707,10 +690,8 @@ def build_single_npz_fast(args, data_path, output_path):
         "dtw_tau": 1.0,
         "cov_clip_lo": 1.0,
         "cov_clip_hi": 99.0,
-        "fft_dtw": bool(getattr(args, "fft_dtw", True)),
-        "fft_cov": bool(getattr(args, "fft_cov", True)),
-        "fft_pear": bool(getattr(args, "fft_pear", True)),
-        "fft_demean": bool(getattr(args, "fft_demean", False)),
+        "fft_transform": "full",
+        "video_patch_source": "full_fft_magnitude",
     }
 
     shard_size = max(1, int(getattr(args, "shard_size", 32)))

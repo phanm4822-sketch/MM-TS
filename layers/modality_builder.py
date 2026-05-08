@@ -7,6 +7,7 @@ from PIL import Image
 from utils.heatmap_render import mats_to_rgb_grid, render_rgb_grid_to_image
 from utils.ts_stats import (
     compute_three_mats,
+    fft_magnitude_features,
     normalize_cov_to_01,
     normalize_dtw_to_01,
     normalize_pearson_to_01,
@@ -73,8 +74,9 @@ def build_image_modality(
         )
         for i in range(batch_size):
             window = x_np[i]
+            rel_source = fft_magnitude_features(window)
             dtw, cov, pear = compute_three_mats(
-                window,
+                rel_source,
                 kind=f"Img sample{i} window{args.seq_len}",
                 dtw_band=getattr(args, "dtw_band", 8),
                 dtw_eps=getattr(args, "dtw_eps", 1e-8),
@@ -134,13 +136,14 @@ def build_video_modality(
         )
         for i in range(batch_size):
             window = x_np[i]
+            rel_source = fft_magnitude_features(window)
             frames = []
             frame_dtw = []
             frame_cov = []
             frame_pear = []
             for p in range(num_patches):
                 start = p * args.stride
-                patch = window[start:start + args.patch_len]
+                patch = rel_source[start:start + args.patch_len]
                 dtw, cov, pear = compute_three_mats(
                     patch,
                     kind=f"Vid sample{i} patch{p} len{args.patch_len}",

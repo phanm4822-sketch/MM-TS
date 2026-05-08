@@ -26,13 +26,11 @@ def dtw_distance_banded(a: np.ndarray, b: np.ndarray, band: int = 8) -> float:
     return float(math.sqrt(dp[T, T]))
 
 
-def _fft_window_features(window: np.ndarray, fft_demean: bool) -> np.ndarray:
-    # Map [T, C] time-domain window to non-negative FFT magnitude features [F, C].
+def fft_magnitude_features(window: np.ndarray) -> np.ndarray:
+    # Map [T, C] time-domain input to full FFT magnitude features [T, C].
     x = window.astype(np.float64, copy=False)
-    if fft_demean:
-        x = x - x.mean(axis=0, keepdims=True)
-    spec = np.fft.rfft(x, axis=0)
-    return np.abs(spec)
+    spec = np.fft.fft(x, axis=0)
+    return np.abs(spec).astype(np.float32, copy=False)
 
 
 def compute_three_mats(
@@ -40,10 +38,6 @@ def compute_three_mats(
     kind: str,
     dtw_band: int = 8,
     dtw_eps: float = 1e-8,
-    fft_dtw: bool = False,
-    fft_cov: bool = False,
-    fft_pear: bool = False,
-    fft_demean: bool = False,
     verbose: bool = False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -51,32 +45,19 @@ def compute_three_mats(
     Returns:
       dtw_mat, cov_mat, pearson_mat, each [C, C]
     """
-    T, C = window.shape
+    _, C = window.shape
 
-    fft_feats = None
-
-    def _pick_view(use_fft: bool) -> np.ndarray:
-        nonlocal fft_feats
-        if not use_fft:
-            return window
-        if fft_feats is None:
-            fft_feats = _fft_window_features(window, fft_demean=fft_demean)
-        return fft_feats
-
-    pear_view = _pick_view(fft_pear)
     with np.errstate(divide="ignore", invalid="ignore"):
-        pearson = np.corrcoef(pear_view, rowvar=False)
+        pearson = np.corrcoef(window, rowvar=False)
     pearson = np.nan_to_num(pearson, nan=0.0, posinf=0.0, neginf=0.0)
 
-    cov_view = _pick_view(fft_cov)
-    T_cov = cov_view.shape[0]
-    w0 = cov_view - cov_view.mean(axis=0, keepdims=True)
+    T_cov = window.shape[0]
+    w0 = window - window.mean(axis=0, keepdims=True)
     cov = (w0.T @ w0) / max(T_cov - 1, 1)
 
-    dtw_view = _pick_view(fft_dtw)
     dtw = np.zeros((C, C), dtype=np.float64)
-    zch = [z_norm_1d(dtw_view[:, i].astype(np.float64), eps=dtw_eps) for i in range(C)]
-    dtw_band_eff = min(int(dtw_band), max(1, dtw_view.shape[0]))
+    zch = [z_norm_1d(window[:, i].astype(np.float64), eps=dtw_eps) for i in range(C)]
+    dtw_band_eff = min(int(dtw_band), max(1, window.shape[0]))
     for i in range(C):
         dtw[i, i] = 0.0
         for j in range(i + 1, C):
@@ -87,8 +68,7 @@ def compute_three_mats(
     if verbose:
         print(
             f"[{kind}] three mats computed: pearson range=({pearson.min():.3f},{pearson.max():.3f}), "
-            f"cov range=({cov.min():.3g},{cov.max():.3g}), dtw range=({dtw.min():.3g},{dtw.max():.3g}), "
-            f"fft(dtw/cov/pear)=({fft_dtw}/{fft_cov}/{fft_pear}), fft_demean={fft_demean}"
+            f"cov range=({cov.min():.3g},{cov.max():.3g}), dtw range=({dtw.min():.3g},{dtw.max():.3g})"
         )
     return dtw, cov, pearson
 

@@ -13,13 +13,13 @@ import torch
 import subprocess
 from utils import time_block
 from utils.heatmap_render import mats_to_rgb_grid
-from utils.ts_stats import compute_three_mats
+from utils.ts_stats import compute_three_mats, fft_magnitude_features
 
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
-NPZ_CACHE_VERSION = "2026-04-15-v4"
-NPZ_CACHE_PROTOCOL = "global_standardize_only_v4"
+NPZ_CACHE_VERSION = "mmts-fullfft-v5"
+NPZ_CACHE_PROTOCOL = "global_standardize_fullfft_v5"
 
 
 def str2bool(value: str) -> bool:
@@ -71,11 +71,6 @@ def get_args():
     parser.add_argument("--window_profile",type=str, default="manual", choices=["manual","etth1", "etth2","ettm1","ettm2","ili","exchange","electricity","traffic","weather","solar",],help="manual or dataset-specific window preset",)
     parser.add_argument("--window_demean", type=str2bool, default=False, help="manual mode: apply per-window de-mean (legacy; true/false)")
     parser.add_argument("--window_norm", type=str2bool, default=False, help="manual mode: apply per-window std norm (legacy; true/false)")
-    parser.add_argument("--fft_dtw", type=str2bool, default=True, help="compute DTW on FFT-domain features (true/false)")
-    parser.add_argument("--fft_cov", type=str2bool, default=True, help="compute covariance on FFT-domain features (true/false)")
-    parser.add_argument("--fft_pear", type=str2bool, default=True, help="compute Pearson on FFT-domain features (true/false)")
-    parser.add_argument("--fft_demean", type=str2bool, default=False, help="apply per-channel de-mean before FFT features (true/false)")
-
     parser.add_argument("--log_every", type=int, default=100, help="progress log interval")
     return parser.parse_args()
 
@@ -612,7 +607,6 @@ def build_single_npz(args, data_path: str, output_path: Optional[str]) -> None:
     cov_clip_lo = 1.0
     cov_clip_hi = 99.0
     window_norm_eps = 1e-3
-
     with time_block("npz.window_mode"):
         window_norm, window_demean, auto_stats = _resolve_window_flags(args, data_path)
         print(
@@ -638,16 +632,13 @@ def build_single_npz(args, data_path: str, output_path: Optional[str]) -> None:
                 x_all[idx] = x
                 y_all[idx] = y
                 x_aux = normalize_window_for_aux(x, eps=1e-5)
+                rel_source = fft_magnitude_features(x_aux)
 
                 dtw, cov, pear = compute_three_mats(
-                    x_aux,
+                    rel_source,
                     kind=f"Img sample{idx}",
                     dtw_band=dtw_band,
                     dtw_eps=dtw_eps,
-                    fft_dtw=bool(getattr(args, "fft_dtw", True)),
-                    fft_cov=bool(getattr(args, "fft_cov", True)),
-                    fft_pear=bool(getattr(args, "fft_pear", True)),
-                    fft_demean=bool(getattr(args, "fft_demean", False)),
                     verbose=(idx == 0),
                 )
                 img_grid[idx] = mats_to_rgb_grid(
@@ -661,16 +652,12 @@ def build_single_npz(args, data_path: str, output_path: Optional[str]) -> None:
 
                 for p in range(num_patches):
                     start_p = p * args.stride
-                    patch = x_aux[start_p:start_p + args.patch_len]
+                    patch = rel_source[start_p:start_p + args.patch_len]
                     dtw_p, cov_p, pear_p = compute_three_mats(
                         patch,
                         kind=f"Vid sample{idx} patch{p}",
                         dtw_band=min(dtw_band, args.patch_len),
                         dtw_eps=dtw_eps,
-                        fft_dtw=bool(getattr(args, "fft_dtw", True)),
-                        fft_cov=bool(getattr(args, "fft_cov", True)),
-                        fft_pear=bool(getattr(args, "fft_pear", True)),
-                        fft_demean=bool(getattr(args, "fft_demean", False)),
                         verbose=(idx == 0 and p == 0),
                     )
                     vid_grids[idx, p] = mats_to_rgb_grid(
@@ -706,10 +693,8 @@ def build_single_npz(args, data_path: str, output_path: Optional[str]) -> None:
         "dtw_tau": dtw_tau,
         "cov_clip_lo": cov_clip_lo,
         "cov_clip_hi": cov_clip_hi,
-        "fft_dtw": bool(getattr(args, "fft_dtw", True)),
-        "fft_cov": bool(getattr(args, "fft_cov", True)),
-        "fft_pear": bool(getattr(args, "fft_pear", True)),
-        "fft_demean": bool(getattr(args, "fft_demean", False)),
+        "fft_transform": "full",
+        "video_patch_source": "full_fft_magnitude",
         "vision_render_size": int(getattr(args, "vision_render_size", 64)),
         "columns": list(df_feat.columns),
         "window_norm": window_norm,
