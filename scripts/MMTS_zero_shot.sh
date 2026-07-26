@@ -185,7 +185,6 @@ run_etth2_transfer() {
     --use_ts_residual true \
     --lora_alpha 8 \
     --lora_dropout 0.1 \
-    --lora_target_layers 0,1,12,13,26,27 \
     --ts_bias_dtw_weight 2.0 \
     --ts_bias_cov_weight 2.0 \
     --ts_residual_mode B \
@@ -201,7 +200,6 @@ run_etth2_transfer() {
     --min_lr_ratio 0.05 \
     --use_ts_residual true \
     --lora_alpha 8 \
-    --lora_target_layers 0,1,12,13,26,27 \
     --ts_bias_scale 0.06 \
     --ts_bias_dtw_weight 2.0 \
     --ts_bias_cov_weight 2.0 \
