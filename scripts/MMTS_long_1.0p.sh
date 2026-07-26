@@ -182,7 +182,6 @@ run_experiment etth2 datasets/ETTh2.csv 96 192 32 20 3 0.00016 0.001016468921334
   --min_lr_ratio 0.05 \
   --use_ts_residual true \
   --lora_alpha 8 \
-  --lora_target_layers 0,1,12,13,26,27 \
   --ts_bias_scale 0.06 \
   --ts_bias_dtw_weight 2.0 \
   --ts_bias_cov_weight 2.0 \
