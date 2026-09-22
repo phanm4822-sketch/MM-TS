@@ -61,13 +61,8 @@ def _eager_attention_with_ts_bias(
         attn_weights = attn_weights + causal_mask
 
     ts_attn_bias = _normalize_ts_bias(ts_attn_bias, attn_weights)
-    bias_mode = str(getattr(mod, "_ts_attn_bias_mode", "add")).lower()
-    if bias_mode == "softmax":
-        ts_attn_bias = F.softmax(ts_attn_bias, dim=-1, dtype=torch.float32).to(attn_weights.dtype)
-    elif bias_mode == "sigmoid":
-        ts_attn_bias = torch.sigmoid(ts_attn_bias)
     if ts_bias_scale is None:
-        scale = raw_scores.abs() * 0.05
+        raise ValueError("An explicit structural-bias scale is required")
     else:
         scale = F.softplus(ts_bias_scale).to(attn_weights.device, attn_weights.dtype)
     attn_weights = attn_weights + ts_attn_bias.to(attn_weights.device, attn_weights.dtype) * scale
@@ -91,11 +86,8 @@ def _patch_module(mod) -> bool:
         mod._ts_attn_bias = None
     if not hasattr(mod, "_ts_attn_bias_layer"):
         mod._ts_attn_bias_layer = None
-    if not hasattr(mod, "_ts_attn_bias_mode"):
-        mod._ts_attn_bias_mode = "add"
     if not hasattr(mod, "_ts_attn_bias_scale"):
         mod._ts_attn_bias_scale = None
-    orig_forward = mod.Qwen3VLTextAttention.forward
 
     def _forward_with_ts_bias(
         self,
@@ -118,7 +110,9 @@ def _patch_module(mod) -> bool:
 
         if past_key_values is not None:
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-            key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
+            key_states, value_states = past_key_values.update(
+                key_states, value_states, self.layer_idx, cache_kwargs
+            )
 
         ts_attn_bias = getattr(mod, "_ts_attn_bias", None)
         ts_layer = getattr(mod, "_ts_attn_bias_layer", None)
@@ -160,7 +154,6 @@ def _patch_module(mod) -> bool:
 
     mod.Qwen3VLTextAttention.forward = _forward_with_ts_bias
     mod._ts_attn_bias_patched = True
-    mod._ts_attn_bias_orig_forward = orig_forward
     return True
 
 
@@ -181,7 +174,6 @@ def patch_qwen3_vl_ts_attn_bias():
 def ts_attn_bias_context(
     ts_attn_bias,
     layer_idx: Optional[int] = None,
-    bias_mode: str = "add",
     bias_scale: torch.Tensor = None,
 ):
     patch_qwen3_vl_ts_attn_bias()
@@ -197,7 +189,6 @@ def ts_attn_bias_context(
         (
             getattr(mod, "_ts_attn_bias", None),
             getattr(mod, "_ts_attn_bias_layer", None),
-            getattr(mod, "_ts_attn_bias_mode", "add"),
             getattr(mod, "_ts_attn_bias_scale", None),
         )
         for mod in mods
@@ -205,7 +196,6 @@ def ts_attn_bias_context(
     for mod in mods:
         mod._ts_attn_bias = ts_attn_bias
         mod._ts_attn_bias_layer = layer_idx
-        mod._ts_attn_bias_mode = str(bias_mode).lower()
         mod._ts_attn_bias_scale = bias_scale
     try:
         yield
@@ -213,10 +203,8 @@ def ts_attn_bias_context(
         for mod, (
             prev_bias,
             prev_layer,
-            prev_mode,
             prev_scale,
         ) in zip(mods, old):
             mod._ts_attn_bias = prev_bias
             mod._ts_attn_bias_layer = prev_layer
-            mod._ts_attn_bias_mode = prev_mode
             mod._ts_attn_bias_scale = prev_scale

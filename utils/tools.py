@@ -1,7 +1,5 @@
 import os
 import random
-import time
-from contextlib import contextmanager
 
 import numpy as np
 import torch
@@ -38,7 +36,7 @@ def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 
-def seed_worker(worker_id: int) -> None:
+def seed_worker(_worker_id: int) -> None:
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
@@ -48,9 +46,3 @@ def to_numpy(x):
     if isinstance(x, torch.Tensor):
         return x.detach().cpu().numpy()
     return x
-
-
-@contextmanager
-def time_block(name: str):
-    start = time.perf_counter()
-    yield

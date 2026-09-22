@@ -14,6 +14,7 @@ class NPZWindowDataset(Dataset):
       x: [seq_len, C], y: [pred_len, C],
       img_grid: [C, C, 3], vid_grids: [num_patches, C, C, 3]
     """
+
     def __init__(
         self,
         x: np.ndarray,
@@ -109,9 +110,13 @@ class ElectricityShardDataset(Dataset):
         }
         if "img_tokens" in files and "vid_tokens" in files:
             cache["img_tokens"] = np.load(self._resolve_file(files["img_tokens"]), mmap_mode="r")
-            cache["img_token_mask"] = np.load(self._resolve_file(files["img_token_mask"]), mmap_mode="r")
+            cache["img_token_mask"] = np.load(
+                self._resolve_file(files["img_token_mask"]), mmap_mode="r"
+            )
             cache["vid_tokens"] = np.load(self._resolve_file(files["vid_tokens"]), mmap_mode="r")
-            cache["vid_token_mask"] = np.load(self._resolve_file(files["vid_token_mask"]), mmap_mode="r")
+            cache["vid_token_mask"] = np.load(
+                self._resolve_file(files["vid_token_mask"]), mmap_mode="r"
+            )
         self._cached_shard_idx = shard_idx
         self._cache = cache
         return cache
@@ -124,7 +129,9 @@ class ElectricityShardDataset(Dataset):
         shard = self.shards[shard_idx]
         local_i = global_i - int(shard["start"])
         if local_i < 0 or local_i >= int(shard["count"]):
-            raise IndexError(f"local shard index out of range: global={global_i} shard={shard_idx} local={local_i}")
+            raise IndexError(
+                f"local shard index out of range: global={global_i} shard={shard_idx} local={local_i}"
+            )
 
         cache = self._load_shard(shard_idx)
         x = torch.from_numpy(np.array(cache["x"][local_i], copy=True)).float()
@@ -133,8 +140,12 @@ class ElectricityShardDataset(Dataset):
         vid_grids = torch.from_numpy(np.array(cache["vid_grids"][local_i], copy=True)).float()
         if "img_tokens" in cache and "vid_tokens" in cache:
             img_tokens = torch.from_numpy(np.array(cache["img_tokens"][local_i], copy=True)).float()
-            img_mask = torch.from_numpy(np.array(cache["img_token_mask"][local_i], copy=True)).long()
+            img_mask = torch.from_numpy(
+                np.array(cache["img_token_mask"][local_i], copy=True)
+            ).long()
             vid_tokens = torch.from_numpy(np.array(cache["vid_tokens"][local_i], copy=True)).float()
-            vid_mask = torch.from_numpy(np.array(cache["vid_token_mask"][local_i], copy=True)).long()
+            vid_mask = torch.from_numpy(
+                np.array(cache["vid_token_mask"][local_i], copy=True)
+            ).long()
             return (x, y, img_grid, vid_grids, img_tokens, img_mask, vid_tokens, vid_mask)
         return (x, y, img_grid, vid_grids)

@@ -1,147 +1,29 @@
+"""Training, validation, evaluation and checkpoint orchestration."""
+
+import copy
 import json
 import os
 import time
-import copy
-from typing import Optional
-import math
+
 import torch
-import torch.nn as nn
 from data_provider.data_factory import data_provider, is_electricity_manifest, load_cache_metadata
 from exp.exp_basic import Exp_Basic
-from exp.exp_main_steps import ExpMainSteps
-from layers.normalization import build_forecast_normalizer
-from models import apply_qwen3_vl_lora, freeze_qwen3_vl, load_qwen3_vl
-from utils import print_box, seed_everything, time_block
+from models.MMTS import Model
+from utils.tools import ensure_dir, print_box
+from utils.config import MODEL_RECIPE
+from utils.ts_attention import validate_checkpoint_attention, validate_checkpoint_forecasting
+from utils.prompts import UNIFIED_PROMPT_VERSION
 
 
-def _infer_mp_devices(model):
-    input_device = None
-    output_device = None
-    device_map = getattr(model, "hf_device_map", None)
-    if not isinstance(device_map, dict):
-        return input_device, output_device
-
-    for key, dev in device_map.items():
-        if any(token in key for token in ("embed_tokens", "input_embeddings", "wte")):
-            input_device = torch.device(dev)
-            break
-
-    max_layer_idx = None
-    max_layer_dev = None
-    for key, dev in device_map.items():
-        if ".layers." in key:
-            try:
-                idx = int(key.split(".layers.")[1].split(".")[0])
-            except Exception:
-                continue
-            if max_layer_idx is None or idx > max_layer_idx:
-                max_layer_idx = idx
-                max_layer_dev = dev
-    if max_layer_dev is not None:
-        output_device = torch.device(max_layer_dev)
-    else:
-        devices = list({v for v in device_map.values()})
-        if devices:
-            output_device = torch.device(devices[-1])
-
-    if input_device is None and device_map:
-        input_device = torch.device(next(iter(device_map.values())))
-    return input_device, output_device
-
-
-
-class Exp_Main(Exp_Basic, ExpMainSteps):
+class Exp_Main(Exp_Basic):
     def __init__(self, args):
-        self.dataset_name = str(getattr(args, "dataset_name", "") or "").strip()
-        self.processor = None
-        self.ts_mlp = None
-        self.pred_head = None
-        self.txt_token_embeds = None
-        self.global_txt_token_embeds = None
-        self.device_in = None
-        self.device_out = None
-        self.data_mean = None
-        self.data_std = None
-        self.data_min = None
-        self.data_max = None
-        self._model_dtype = None
-        self.ts_time_embed = None
-        self.ts_var_embed = None
-        self.ts_normalizer = None
-        self._ts_embed_cache = {}
+        self.dataset_name = str(getattr(args, "dataset_name", "") or "")
+        self.data_mean = self.data_std = None
         super().__init__(args)
 
     def _build_model(self):
-        self._prepare_output()
-        print_box("2) Load Qwen3-VL")
-        with time_block("model.load"):
-            use_mp = bool(getattr(self.args, "model_parallel", False))
-            device_map = "auto" if use_mp else None
-            model, processor = load_qwen3_vl(self.args.qwen_dir, device_map=device_map)
-            if device_map is None:
-                model = model.to(self.device)
-        freeze_qwen3_vl(
-            model,
-            freeze_lm=bool(getattr(self.args, "freeze_lm", True)),
-            freeze_vit=True,
-        )
-        model = apply_qwen3_vl_lora(model, self.args)
-        self.model = model
-        self.processor = processor
-        self.model_base = model
-        if bool(getattr(self.args, "model_parallel", False)):
-            self.device_in, self.device_out = _infer_mp_devices(self.model)
-            if self.device_in is not None:
-                self.device = self.device_in
-        if hasattr(model, "peft_config"):
-            self.backbone = model.model.model
-        else:
-            self.backbone = model.model
-
-        self._init_modality_params()
-
-        patch_size = self._load_vision_patch_size(self.args.qwen_dir)
-        self.vision_patch_size = patch_size
-
-        model_dtype = next(self.model.parameters()).dtype
-        self._model_dtype = model_dtype
-        seed = getattr(self.args, "seed", None)
-        if seed is not None:
-            seed_everything(int(seed))
-        self._maybe_build_ts_modules()
-        self.txt_token_embeds = None
-
-        return self.model
-
-    def _init_modality_params(self) -> None:
-        model = self.model
-        device = next(model.parameters()).device
-        dtype = next(model.parameters()).dtype
-        embed_dim = int(getattr(self.args, "embed_dim", 2048))
-        for name in ("img_norm", "vid_norm", "text_norm"):
-            if not hasattr(model, name):
-                model.add_module(
-                    name,
-                    nn.LayerNorm(embed_dim, elementwise_affine=True).to(device=device, dtype=dtype),
-                )
-        for name in ("img_gate", "vid_gate", "text_gate"):
-            if not hasattr(model, name):
-                model.register_parameter(name, nn.Parameter(torch.zeros((), device=device, dtype=dtype)))
-        if bool(getattr(self.args, "ts_bias_learnable", True)):
-            if not hasattr(model, "ts_bias_scale"):
-                init = float(getattr(self.args, "ts_bias_scale", 0.05))
-                init = max(init, 1e-6)
-                init = math.log(math.exp(init) - 1.0)
-                model.register_parameter(
-                    "ts_bias_scale",
-                    nn.Parameter(torch.tensor(init, device=device, dtype=dtype)),
-                )
-        if bool(getattr(self.args, "use_ts_residual", False)):
-            if not hasattr(model, "ts_residual_gate"):
-                model.register_parameter(
-                    "ts_residual_gate",
-                    nn.Parameter(torch.zeros((), device=device, dtype=dtype)),
-                )
+        ensure_dir(self.args.output_dir)
+        return Model(self.args, device=self.device)
 
     def _build_metrics_paths(self):
         dataset_name = str(getattr(self, "dataset_name", "") or "").strip() or "dataset"
@@ -191,17 +73,17 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
             "best_epoch": int(best_epoch),
             "best_val_mse": float(best_monitor),
             "args": self._collect_run_config(),
-            "ts_mlp": self._state_dict_to_cpu(self.ts_mlp.state_dict()),
-            "pred_head": self._state_dict_to_cpu(self.pred_head.state_dict()),
+            "ts_mlp": self._state_dict_to_cpu(self.model.ts_mlp.state_dict()),
+            "pred_head": self._state_dict_to_cpu(self.model.pred_head.state_dict()),
         }
         if self.model is not None:
-            state["model"] = self._state_dict_to_cpu(self.model.state_dict())
-        if getattr(self, "ts_time_embed", None) is not None:
-            state["ts_time_embed"] = self._state_dict_to_cpu(self.ts_time_embed.state_dict())
-        if getattr(self, "ts_var_embed", None) is not None:
-            state["ts_var_embed"] = self._state_dict_to_cpu(self.ts_var_embed.state_dict())
-        if getattr(self, "ts_normalizer", None) is not None:
-            state["ts_normalizer"] = self._state_dict_to_cpu(self.ts_normalizer.state_dict())
+            state["model"] = self._state_dict_to_cpu(self.model.vlm.state_dict())
+        if getattr(self.model, "ts_time_embed", None) is not None:
+            state["ts_time_embed"] = self._state_dict_to_cpu(self.model.ts_time_embed.state_dict())
+        if getattr(self.model, "ts_var_embed", None) is not None:
+            state["ts_var_embed"] = self._state_dict_to_cpu(self.model.ts_var_embed.state_dict())
+        if getattr(self.model, "ts_normalizer", None) is not None:
+            state["ts_normalizer"] = self._state_dict_to_cpu(self.model.ts_normalizer.state_dict())
         return state
 
     @staticmethod
@@ -215,18 +97,22 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         return cpu_state
 
     def _restore_checkpoint_state(self, state: dict):
-        self.ts_mlp.load_state_dict(state["ts_mlp"])
-        self.pred_head.load_state_dict(state["pred_head"])
+        validate_checkpoint_attention(self.args, state.get("args", {}))
+        validate_checkpoint_forecasting(self.args, state.get("args", {}))
+        self.model.ts_mlp.load_state_dict(state["ts_mlp"])
+        self.model.pred_head.load_state_dict(state["pred_head"])
         if "model" in state:
-            self.model.load_state_dict(state["model"], strict=False)
-        if "ts_time_embed" in state and getattr(self, "ts_time_embed", None) is not None:
-            self.ts_time_embed.load_state_dict(state["ts_time_embed"])
-        if "ts_var_embed" in state and getattr(self, "ts_var_embed", None) is not None:
-            self.ts_var_embed.load_state_dict(state["ts_var_embed"])
-        if "ts_normalizer" in state and getattr(self, "ts_normalizer", None) is not None:
-            self.ts_normalizer.load_state_dict(state["ts_normalizer"])
+            self.model.vlm.load_state_dict(state["model"], strict=True)
+        if "ts_time_embed" in state and getattr(self.model, "ts_time_embed", None) is not None:
+            self.model.ts_time_embed.load_state_dict(state["ts_time_embed"])
+        if "ts_var_embed" in state and getattr(self.model, "ts_var_embed", None) is not None:
+            self.model.ts_var_embed.load_state_dict(state["ts_var_embed"])
+        if "ts_normalizer" in state and getattr(self.model, "ts_normalizer", None) is not None:
+            self.model.ts_normalizer.load_state_dict(state["ts_normalizer"])
 
-    def save_checkpoint(self, path: str, best_epoch: int, best_monitor: float, state: dict | None = None):
+    def save_checkpoint(
+        self, path: str, best_epoch: int, best_monitor: float, state: dict | None = None
+    ):
         if state is None:
             state = self._capture_checkpoint_state(best_epoch=best_epoch, best_monitor=best_monitor)
         torch.save(state, path)
@@ -236,7 +122,6 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         if not os.path.exists(path):
             raise FileNotFoundError(f"checkpoint not found: {path}")
         _train_data, _train_loader = self._get_data(flag="train")
-        self._ensure_text_embeddings()
         state = torch.load(path, map_location="cpu")
         self._restore_checkpoint_state(state)
         print(
@@ -258,6 +143,9 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
                 cfg[k] = v
             else:
                 cfg[k] = str(v)
+        cfg.update(MODEL_RECIPE)
+        if cfg.get("prompt_style") == "unified":
+            cfg["prompt_template_version"] = UNIFIED_PROMPT_VERSION
         return cfg
 
     def save_eval_metrics(self, test_metrics: dict, ckpt_path: str = ""):
@@ -287,8 +175,7 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
             else:
                 source = "npz" if str(data_path).endswith(".npz") else "csv"
             print(f"[Data] source={source} path={data_path}")
-        with time_block(f"data.load.{flag}"):
-            data_set, data_loader = data_provider(self.args, flag=flag)
+        data_set, data_loader = data_provider(self.args, flag=flag)
         if flag == "train":
             data_path = getattr(self.args, "data_path", None)
             if data_path:
@@ -301,15 +188,11 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
                     if cache_meta.get("mean") is not None and cache_meta.get("std") is not None:
                         self.data_mean = torch.as_tensor(cache_meta["mean"], dtype=torch.float32)
                         self.data_std = torch.as_tensor(cache_meta["std"], dtype=torch.float32)
-                    if cache_meta.get("data_min") is not None and cache_meta.get("data_max") is not None:
-                        self.data_min = torch.as_tensor(cache_meta["data_min"], dtype=torch.float32)
-                        self.data_max = torch.as_tensor(cache_meta["data_max"], dtype=torch.float32)
                 except Exception:
                     self.data_mean = None
                     self.data_std = None
-                    self.data_min = None
-                    self.data_max = None
-            self._maybe_build_ts_modules()
+            self.model.dataset_name = self.dataset_name
+            self.model.configure_channels()
 
         if flag == "train" and hasattr(data_set, "split_sizes"):
             print_box("1) Build dataset/dataloader")
@@ -321,7 +204,7 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        train_params = self._collect_train_params()
+        train_params = [p for p in self.model.parameters() if p.requires_grad]
         return torch.optim.AdamW(train_params, lr=self.args.lr, weight_decay=self.args.weight_decay)
 
     def _select_scheduler(self, optimizer):
@@ -339,56 +222,6 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
             )
         raise ValueError(f"unknown lr_schedule: {schedule}")
 
-    def _maybe_build_ts_modules(self) -> None:
-        if self.ts_mlp is not None and self.pred_head is not None:
-            self._maybe_build_time_embeds()
-            self._maybe_build_ts_normalizer()
-            return
-        num_vars = int(getattr(self.args, "num_vars", -1))
-        if num_vars <= 0:
-            return
-        model_dtype = self._model_dtype
-        self.ts_mlp, self.pred_head = self._build_ts_modules(self.device, model_dtype=model_dtype)
-        self._maybe_build_time_embeds()
-        self._maybe_build_ts_normalizer()
-        if bool(getattr(self.args, "model_parallel", False)) and self.device_out is not None:
-            if next(self.pred_head.parameters()).device != self.device_out:
-                self.pred_head = self.pred_head.to(self.device_out)
-        if not bool(getattr(self.args, "train_ts_mlp", True)):
-            for p in list(self.ts_mlp.parameters()) + list(self.pred_head.parameters()):
-                p.requires_grad = False
-
-    def _maybe_build_ts_normalizer(self) -> None:
-        if getattr(self, "ts_normalizer", None) is not None:
-            return
-        num_vars = int(getattr(self.args, "num_vars", -1))
-        if num_vars <= 0:
-            return
-        dtype = self._model_dtype or torch.float32
-        self.ts_normalizer = build_forecast_normalizer(
-            num_features=num_vars,
-            eps=float(getattr(self.args, "revin_eps", 1e-5)),
-            affine=False,
-            subtract_last=bool(getattr(self.args, "revin_subtract_last", False)),
-            non_norm=False,
-        ).to(device=self.device, dtype=dtype)
-
-    def _maybe_build_time_embeds(self) -> None:
-        if not bool(getattr(self.args, "use_time_features", False)):
-            return
-        if self.ts_time_embed is not None and self.ts_var_embed is not None:
-            return
-        num_vars = int(getattr(self.args, "num_vars", -1))
-        if num_vars <= 0:
-            return
-        num_patches = (self.args.seq_len - self.args.patch_len) // self.args.stride + 1
-        if num_patches <= 0:
-            return
-        device = self.device
-        dtype = self._model_dtype or torch.float32
-        self.ts_time_embed = nn.Embedding(num_patches, self.args.embed_dim).to(device=device, dtype=dtype)
-        self.ts_var_embed = nn.Embedding(num_vars, self.args.embed_dim).to(device=device, dtype=dtype)
-
     @staticmethod
     def _has_trainable_params(module) -> bool:
         return any(p.requires_grad for p in module.parameters())
@@ -404,12 +237,12 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         x, y = batch
         return x, y, None, None, None, None, None, None
 
+    @torch.no_grad()
     def vali(self, vali_loader, num_patches: int):
-        self._ensure_text_embeddings()
-        self.ts_mlp.eval()
-        self.pred_head.eval()
+        self.model.ts_mlp.eval()
+        self.model.pred_head.eval()
         self.model.eval()
-        self.backbone.eval()
+        self.model.backbone.eval()
 
         total_sq = 0.0
         total_abs = 0.0
@@ -417,12 +250,12 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
 
         max_batches = self.args.max_eval_batches
         for batch_idx, batch in enumerate(vali_loader):
-            x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = self._unpack_batch(batch)
+            x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = (
+                self._unpack_batch(batch)
+            )
 
-            preds = self._forward_batch(
+            preds = self.model(
                 x=x,
-                num_patches=num_patches,
-                train=False,
                 img_grids=img_grids,
                 vid_grids=vid_grids,
                 img_tokens=img_tokens,
@@ -434,7 +267,7 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
 
             preds_eval, y_eval = self._maybe_denorm(preds, y_dev)
             diff = preds_eval - y_eval
-            total_sq += float(torch.sum(diff ** 2).item())
+            total_sq += float(torch.sum(diff**2).item())
             total_abs += float(torch.sum(torch.abs(diff)).item())
             total_count += int(y_eval.numel())
 
@@ -449,11 +282,10 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
             print(f"[Val] per-var mse={per_var['mse']} mae={per_var['mae']}")
         return {"mse": mse_epoch, "mae": mae_epoch, "loss": loss_epoch}
 
-    def train(self, setting: Optional[str] = None):
+    def train(self):
         start_time = time.perf_counter()
         _train_data, train_loader = self._get_data(flag="train")
         _vali_data, vali_loader = self._get_data(flag="val")
-        self._ensure_text_embeddings()
 
         optimizer = self._select_optimizer()
         scheduler = self._select_scheduler(optimizer)
@@ -473,82 +305,88 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         for epoch in range(self.args.epochs):
             if hasattr(train_loader, "sampler") and hasattr(train_loader.sampler, "set_epoch"):
                 train_loader.sampler.set_epoch(epoch)
-            with time_block(f"epoch.train[{epoch+1}]"):
-                self.ts_mlp.train()
-                self.pred_head.train()
-                if self._has_trainable_params(self.model):
-                    self.model.train()
-                else:
-                    self.model.eval()
-                if self._has_trainable_params(self.backbone):
-                    self.backbone.train()
-                else:
-                    self.backbone.eval()
+            self.model.ts_mlp.train()
+            self.model.pred_head.train()
+            if self._has_trainable_params(self.model):
+                self.model.train()
+            else:
+                self.model.eval()
+            if self._has_trainable_params(self.model.backbone):
+                self.model.backbone.train()
+            else:
+                self.model.backbone.eval()
 
-                total_sq = 0.0
-                total_abs = 0.0
-                total_count = 0
+            total_sq = 0.0
+            total_abs = 0.0
+            total_count = 0
 
-                max_batches = self.args.max_train_batches
-                for batch_idx, batch in enumerate(train_loader):
-                    x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = self._unpack_batch(batch)
-                    optimizer.zero_grad(set_to_none=True)
+            max_batches = self.args.max_train_batches
+            for batch_idx, batch in enumerate(train_loader):
+                (
+                    x,
+                    y,
+                    img_grids,
+                    vid_grids,
+                    img_tokens,
+                    img_token_mask,
+                    vid_tokens,
+                    vid_token_mask,
+                ) = self._unpack_batch(batch)
+                optimizer.zero_grad(set_to_none=True)
 
-                    preds = self._forward_batch(
-                        x=x,
-                        num_patches=num_patches,
-                        train=True,
-                        img_grids=img_grids,
-                        vid_grids=vid_grids,
-                        img_tokens=img_tokens,
-                        img_token_mask=img_token_mask,
-                        vid_tokens=vid_tokens,
-                        vid_token_mask=vid_token_mask,
-                    )
-                    y_dev = y.to(preds.device)
+                preds = self.model(
+                    x=x,
+                    img_grids=img_grids,
+                    vid_grids=vid_grids,
+                    img_tokens=img_tokens,
+                    img_token_mask=img_token_mask,
+                    vid_tokens=vid_tokens,
+                    vid_token_mask=vid_token_mask,
+                )
+                y_dev = y.to(preds.device)
 
-                    diff = preds - y_dev
-                    mse = torch.mean(diff ** 2)
-                    mse.backward()
-                    optimizer.step()
+                diff = preds - y_dev
+                mse = torch.mean(diff**2)
+                mse.backward()
+                optimizer.step()
 
-                    total_sq += float(torch.sum(diff ** 2).item())
-                    total_abs += float(torch.sum(torch.abs(diff)).item())
-                    total_count += int(y_dev.numel())
+                total_sq += float(torch.sum(diff**2).item())
+                total_abs += float(torch.sum(torch.abs(diff)).item())
+                total_count += int(y_dev.numel())
 
-                    if (batch_idx + 1) % max(1, self.args.log_interval) == 0:
-                        print(f"[train] epoch={epoch+1} step={batch_idx+1} mse={mse.item():.6f}")
+                if (batch_idx + 1) % max(1, self.args.log_interval) == 0:
+                    print(f"[train] epoch={epoch + 1} step={batch_idx + 1} mse={mse.item():.6f}")
 
-                    if max_batches is not None and max_batches > 0 and (batch_idx + 1) >= max_batches:
-                        break
+                if max_batches is not None and max_batches > 0 and (batch_idx + 1) >= max_batches:
+                    break
 
-                train_metrics = {
-                    "mse": total_sq / max(1, total_count),
-                    "mae": total_abs / max(1, total_count),
-                    "loss": total_sq / max(1, total_count),
-                }
-            with time_block(f"epoch.val[{epoch+1}]"):
-                val_metrics = self.vali(vali_loader, num_patches=num_patches)
+            train_metrics = {
+                "mse": total_sq / max(1, total_count),
+                "mae": total_abs / max(1, total_count),
+                "loss": total_sq / max(1, total_count),
+            }
+            val_metrics = self.vali(vali_loader, num_patches=num_patches)
             metrics["train"].append(train_metrics)
             metrics["val"].append(val_metrics)
             if eval_test_during_train and test_loader is not None:
-                with time_block(f"epoch.test_monitor[{epoch+1}]"):
-                    test_metrics = self.vali(test_loader, num_patches=num_patches)
+                test_metrics = self.vali(test_loader, num_patches=num_patches)
                 metrics["test_epoch"].append(test_metrics)
                 print(
-                    f"[Epoch {epoch+1}] train mse={train_metrics['mse']:.6f} mae={train_metrics['mae']:.6f} | "
+                    f"[Epoch {epoch + 1}] train mse={train_metrics['mse']:.6f} mae={train_metrics['mae']:.6f} | "
                     f"val mse={val_metrics['mse']:.6f} mae={val_metrics['mae']:.6f} | "
                     f"test mse={test_metrics['mse']:.6f} mae={test_metrics['mae']:.6f}"
                 )
             else:
                 print(
-                    f"[Epoch {epoch+1}] train mse={train_metrics['mse']:.6f} mae={train_metrics['mae']:.6f} | "
+                    f"[Epoch {epoch + 1}] train mse={train_metrics['mse']:.6f} mae={train_metrics['mae']:.6f} | "
                     f"val mse={val_metrics['mse']:.6f} mae={val_metrics['mae']:.6f}"
                 )
             if val_metrics["loss"] < best_monitor:
                 best_monitor = float(val_metrics["loss"])
                 best_epoch = epoch + 1
-                best_state = self._capture_checkpoint_state(best_epoch=best_epoch, best_monitor=best_monitor)
+                best_state = self._capture_checkpoint_state(
+                    best_epoch=best_epoch, best_monitor=best_monitor
+                )
                 bad_epochs = 0
             else:
                 bad_epochs += 1
@@ -556,7 +394,9 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
                 latest_path=latest_path,
                 metrics=metrics,
                 best_epoch=max(best_epoch, 0),
-                best_monitor=best_monitor if best_monitor < float("inf") else float(val_metrics["loss"]),
+                best_monitor=best_monitor
+                if best_monitor < float("inf")
+                else float(val_metrics["loss"]),
                 status="running",
                 current_epoch=epoch + 1,
             )
@@ -568,26 +408,31 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
                     latest_path=latest_path,
                     metrics=metrics,
                     best_epoch=max(best_epoch, 0),
-                    best_monitor=best_monitor if best_monitor < float("inf") else float(val_metrics["loss"]),
+                    best_monitor=best_monitor
+                    if best_monitor < float("inf")
+                    else float(val_metrics["loss"]),
                     status="early_stop_pending_test",
                     current_epoch=epoch + 1,
                 )
                 break
 
         total_sec = time.perf_counter() - start_time
-        print(f"[Total] train+eval total time: {total_sec:.1f}s ({total_sec/60.0:.2f} min)")
+        print(f"[Total] train+eval total time: {total_sec:.1f}s ({total_sec / 60.0:.2f} min)")
         if best_state is not None:
-            try:
-                self._restore_checkpoint_state(best_state)
-                print(f"[Best] loaded best weights from epoch {best_epoch} (val_loss={best_monitor:.6f})")
-            except Exception as exc:
-                print(f"[Best] failed to load best weights: {exc}")
+            self._restore_checkpoint_state(best_state)
+            print(
+                f"[Best] loaded best weights from epoch {best_epoch} (val_loss={best_monitor:.6f})"
+            )
         if best_state is not None and bool(getattr(self.args, "save_checkpoint", False)):
             ckpt_path, ckpt_latest_path = self._build_checkpoint_paths()
-            self.save_checkpoint(ckpt_path, best_epoch=best_epoch, best_monitor=best_monitor, state=best_state)
-            self.save_checkpoint(ckpt_latest_path, best_epoch=best_epoch, best_monitor=best_monitor, state=best_state)
+            self.save_checkpoint(
+                ckpt_path, best_epoch=best_epoch, best_monitor=best_monitor, state=best_state
+            )
+            self.save_checkpoint(
+                ckpt_latest_path, best_epoch=best_epoch, best_monitor=best_monitor, state=best_state
+            )
 
-        test_metrics = self.test(test=1)
+        test_metrics = self.test()
         metrics["test"] = [test_metrics]
         run_info = {
             "best_epoch": int(best_epoch),
@@ -605,51 +450,50 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         print(f"[Output] latest metrics: {latest_path}")
         return self.model
 
-    def test(self, setting: Optional[str] = None, test: int = 0):
+    @torch.no_grad()
+    def test(self):
         _test_data, test_loader = self._get_data(flag="test")
-        self._ensure_text_embeddings()
         num_patches = (self.args.seq_len - self.args.patch_len) // self.args.stride + 1
-        with time_block("epoch.test"):
-            self.ts_mlp.eval()
-            self.pred_head.eval()
-            self.model.eval()
-            self.backbone.eval()
+        self.model.ts_mlp.eval()
+        self.model.pred_head.eval()
+        self.model.eval()
+        self.model.backbone.eval()
 
-            total_sq = 0.0
-            total_abs = 0.0
-            total_count = 0
+        total_sq = 0.0
+        total_abs = 0.0
+        total_count = 0
 
-            max_batches = self.args.max_eval_batches
-            for batch_idx, batch in enumerate(test_loader):
-                x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = self._unpack_batch(batch)
+        max_batches = self.args.max_eval_batches
+        for batch_idx, batch in enumerate(test_loader):
+            x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = (
+                self._unpack_batch(batch)
+            )
 
-                preds = self._forward_batch(
-                    x=x,
-                    num_patches=num_patches,
-                    train=False,
-                    img_grids=img_grids,
-                    vid_grids=vid_grids,
-                    img_tokens=img_tokens,
-                    img_token_mask=img_token_mask,
-                    vid_tokens=vid_tokens,
-                    vid_token_mask=vid_token_mask,
-                )
-                y_dev = y.to(preds.device)
+            preds = self.model(
+                x=x,
+                img_grids=img_grids,
+                vid_grids=vid_grids,
+                img_tokens=img_tokens,
+                img_token_mask=img_token_mask,
+                vid_tokens=vid_tokens,
+                vid_token_mask=vid_token_mask,
+            )
+            y_dev = y.to(preds.device)
 
-                preds_eval, y_eval = self._maybe_denorm(preds, y_dev)
-                diff = preds_eval - y_eval
-                total_sq += float(torch.sum(diff ** 2).item())
-                total_abs += float(torch.sum(torch.abs(diff)).item())
-                total_count += int(y_eval.numel())
+            preds_eval, y_eval = self._maybe_denorm(preds, y_dev)
+            diff = preds_eval - y_eval
+            total_sq += float(torch.sum(diff**2).item())
+            total_abs += float(torch.sum(torch.abs(diff)).item())
+            total_count += int(y_eval.numel())
 
-                if max_batches is not None and max_batches > 0 and (batch_idx + 1) >= max_batches:
-                    break
+            if max_batches is not None and max_batches > 0 and (batch_idx + 1) >= max_batches:
+                break
 
-            test_metrics = {
-                "mse": total_sq / max(1, total_count),
-                "mae": total_abs / max(1, total_count),
-                "loss": total_sq / max(1, total_count),
-            }
+        test_metrics = {
+            "mse": total_sq / max(1, total_count),
+            "mae": total_abs / max(1, total_count),
+            "loss": total_sq / max(1, total_count),
+        }
         print(f"[Test] mse={test_metrics['mse']:.6f} mae={test_metrics['mae']:.6f}")
         if bool(getattr(self.args, "print_per_var_metrics", False)):
             per_var = self._per_var_metrics(test_loader, num_patches=num_patches)
@@ -665,22 +509,22 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
         std = self.data_std.to(preds.device).view(1, 1, -1)
         return preds * std + mean, y * std + mean
 
+    @torch.no_grad()
     def _per_var_metrics(self, loader, num_patches: int):
-        self._ensure_text_embeddings()
-        self.ts_mlp.eval()
-        self.pred_head.eval()
+        self.model.ts_mlp.eval()
+        self.model.pred_head.eval()
         self.model.eval()
-        self.backbone.eval()
+        self.model.backbone.eval()
         total_sq = None
         total_abs = None
         total_count = 0
         max_batches = self.args.max_eval_batches
         for batch_idx, batch in enumerate(loader):
-            x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = self._unpack_batch(batch)
-            preds = self._forward_batch(
+            x, y, img_grids, vid_grids, img_tokens, img_token_mask, vid_tokens, vid_token_mask = (
+                self._unpack_batch(batch)
+            )
+            preds = self.model(
                 x=x,
-                num_patches=num_patches,
-                train=False,
                 img_grids=img_grids,
                 vid_grids=vid_grids,
                 img_tokens=img_tokens,
@@ -691,7 +535,7 @@ class Exp_Main(Exp_Basic, ExpMainSteps):
             y_dev = y.to(preds.device)
             preds_eval, y_eval = self._maybe_denorm(preds, y_dev)
             diff = preds_eval - y_eval
-            sq = torch.sum(diff ** 2, dim=(0, 1))
+            sq = torch.sum(diff**2, dim=(0, 1))
             ab = torch.sum(torch.abs(diff), dim=(0, 1))
             if total_sq is None:
                 total_sq = sq.detach().cpu()

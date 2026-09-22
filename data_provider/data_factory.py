@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from .data_loader import ElectricityShardDataset, NPZWindowDataset
-from utils import seed_worker
+from utils.tools import seed_worker
 
 EXPECTED_CACHE_PROTOCOL = "global_standardize_fullfft_v5"
 
@@ -72,11 +72,13 @@ def _validate_meta(meta: dict, args, num_vars: int):
             f"unsupported cache protocol: {cache_protocol or 'missing'}. "
             f"Regenerate the cache with protocol={EXPECTED_CACHE_PROTOCOL}."
         )
-    legacy_window_transform = bool(meta.get("window_norm", False) or meta.get("window_demean", False))
+    legacy_window_transform = bool(
+        meta.get("window_norm", False) or meta.get("window_demean", False)
+    )
     if legacy_window_transform:
         raise ValueError(
-            "cache meta indicates legacy per-window normalization is baked into x/y. "
-            "Regenerate the cache with the updated npz builder."
+            "Cached x/y must use training-split standardization, without per-window transforms. "
+            "Rebuild the cache with the selected dataset's cache builder."
         )
     mismatches = []
     if "seq_len" in meta and int(meta["seq_len"]) != int(args.seq_len):
@@ -112,8 +114,12 @@ def load_cache_metadata(data_path: str) -> dict:
             "meta": meta,
             "mean": np.asarray(meta.get("mean", []), dtype=np.float32) if "mean" in meta else None,
             "std": np.asarray(meta.get("std", []), dtype=np.float32) if "std" in meta else None,
-            "data_min": np.asarray(meta.get("data_min", []), dtype=np.float32) if "data_min" in meta else None,
-            "data_max": np.asarray(meta.get("data_max", []), dtype=np.float32) if "data_max" in meta else None,
+            "data_min": np.asarray(meta.get("data_min", []), dtype=np.float32)
+            if "data_min" in meta
+            else None,
+            "data_max": np.asarray(meta.get("data_max", []), dtype=np.float32)
+            if "data_max" in meta
+            else None,
         }
 
     if not str(data_path).lower().endswith(".npz"):

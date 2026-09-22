@@ -87,7 +87,9 @@ def fuse_modalities(
     if text_gate is not None and txt_embeds.shape[1] > 0:
         txt_embeds = txt_embeds * _gate_scale(text_gate, device=device, dtype=model_dtype)
     if txt_embeds.shape[1] > 0 and float(text_scale) != 1.0:
-        txt_embeds = txt_embeds * torch.as_tensor(float(text_scale), device=device, dtype=model_dtype)
+        txt_embeds = txt_embeds * torch.as_tensor(
+            float(text_scale), device=device, dtype=model_dtype
+        )
     txt_len = int(txt_embeds.shape[1])
 
     img_tokens, img_mask = _as_stacked_tokens(
@@ -113,9 +115,13 @@ def fuse_modalities(
     if vid_gate is not None and vid_tokens.shape[1] > 0:
         vid_tokens = vid_tokens * _gate_scale(vid_gate, device=device, dtype=model_dtype)
     if img_tokens.shape[1] > 0 and float(img_scale) != 1.0:
-        img_tokens = img_tokens * torch.as_tensor(float(img_scale), device=device, dtype=model_dtype)
+        img_tokens = img_tokens * torch.as_tensor(
+            float(img_scale), device=device, dtype=model_dtype
+        )
     if vid_tokens.shape[1] > 0 and float(vid_scale) != 1.0:
-        vid_tokens = vid_tokens * torch.as_tensor(float(vid_scale), device=device, dtype=model_dtype)
+        vid_tokens = vid_tokens * torch.as_tensor(
+            float(vid_scale), device=device, dtype=model_dtype
+        )
 
     ts_mask = torch.ones((bsz, ts_len), dtype=torch.long, device=device)
     blocks = [

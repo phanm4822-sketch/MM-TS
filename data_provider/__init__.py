@@ -1,1 +1,1 @@
-"""Dataset and cache utilities for MM-TS."""
+"""Dataset loading and cache preparation."""

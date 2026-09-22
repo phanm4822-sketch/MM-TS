@@ -12,45 +12,29 @@ import numpy as np
 import pandas as pd
 import torch
 from numpy.lib.format import open_memmap
-from numpy.lib.stride_tricks import sliding_window_view
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS_DIR = os.path.dirname(SCRIPT_DIR)
-if ROOT_DIR not in sys.path:
-    sys.path.insert(0, ROOT_DIR)
-if SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, SCRIPTS_DIR)
-if SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, SCRIPT_DIR)
 
-from layers.modality_builder import (  # noqa: E402
+from layers.modality_builder import (
     build_image_modality_from_grids,
     build_video_modality_from_grids,
 )
-from models.qwen3_vl_utils import load_qwen3_vl  # noqa: E402
-from layers.vision_encode import encode_vision_modalities  # noqa: E402
-from data_provider.cache.standard import (  # noqa: E402
+from models.qwen3_vl_utils import load_qwen3_vl
+from layers.vision_encode import encode_vision_modalities
+from data_provider.cache.common import (
     NPZ_CACHE_VERSION,
     NPZ_CACHE_PROTOCOL,
     StandardScalerPerChannel,
     _detect_header,
-    _get_ett_borders,
-    _get_patchtst_overlap_borders,
-    _infer_ett_freq,
     _is_ili_dataset,
     _uses_patchtst_overlap_split,
     _load_vision_patch_size,
     _resolve_qwen_dir,
     _resolve_root,
-    _resolve_window_flags,
+    build_split_ranges,
+    build_relation_grids,
     _set_visible_gpus,
-    normalize_window_for_aux,
     str2bool,
 )
-from utils import time_block  # noqa: E402
-from utils.heatmap_render import mats_to_rgb_grid  # noqa: E402
-from utils.ts_stats import compute_three_mats, fft_magnitude_features  # noqa: E402
 
 BASE_DONE_MARKER = "base_complete.json"
 VISION_DONE_MARKER = "vision_complete.json"
@@ -62,17 +46,6 @@ def _apply_dataset_specific_overrides(args, data_path: str):
     return args
 
 
-def patchify_np_fast(window, patch_len: int, stride: int):
-    t, c = window.shape
-    num_patches = (t - patch_len) // stride + 1
-    if (t - patch_len) % stride != 0:
-        print(f"[WARN] T={t}, patch_len={patch_len}, stride={stride} not aligned; last part truncated.")
-    patches = sliding_window_view(window, window_shape=patch_len, axis=0)[::stride]
-    patches = np.transpose(patches, (1, 0, 2))
-    tokens = patches.reshape(c * num_patches, patch_len)
-    return np.ascontiguousarray(tokens, dtype=np.float32)
-
-
 _FAST_DATA_NORM = None
 _FAST_CFG = None
 _FAST_MEMMAPS = {}
@@ -81,25 +54,70 @@ _FAST_MEMMAPS = {}
 def get_args():
     parser = argparse.ArgumentParser(description="Electricity-specific sharded cache builder")
     parser.add_argument("--root_path", type=str, default=".", help="root path of data file")
-    parser.add_argument("--data_path", type=str, default="datasets/electricity.csv", help="raw csv path")
-    parser.add_argument("--output_path", type=str, default=None, help="output directory for sharded cache")
-    parser.add_argument("--no_header", type=str2bool, default=False, help="treat CSV as headerless (true/false)")
-    parser.add_argument("--auto_header", type=str2bool, default=True, help="auto-detect header row (true/false)")
+    parser.add_argument(
+        "--data_path", type=str, default="datasets/electricity.csv", help="raw csv path"
+    )
+    parser.add_argument(
+        "--output_path", type=str, default=None, help="output directory for sharded cache"
+    )
+    parser.add_argument(
+        "--no_header", type=str2bool, default=False, help="treat CSV as headerless (true/false)"
+    )
+    parser.add_argument(
+        "--auto_header", type=str2bool, default=True, help="auto-detect header row (true/false)"
+    )
 
-    parser.add_argument("--precompute_vision", type=str2bool, default=True, help="precompute Qwen3-VL vision tokens")
-    parser.add_argument("--qwen_dir", type=str, default="Qwen3-VL-2B-Instruct", help="Qwen3-VL model directory")
+    parser.add_argument(
+        "--precompute_vision", type=str2bool, default=True, help="precompute Qwen3-VL vision tokens"
+    )
+    parser.add_argument(
+        "--qwen_dir", type=str, default="Qwen3-VL-2B-Instruct", help="Qwen3-VL model directory"
+    )
     parser.add_argument("--gpus", type=str, default="0", help="visible GPU ids for precompute")
-    parser.add_argument("--vision_only_shard", type=str2bool, default=False, help="only precompute vision tokens for one shard")
-    parser.add_argument("--shard_dir", type=str, default="", help="shard directory for --vision_only_shard")
-    parser.add_argument("--vision_mb", type=int, default=8, help="vision micro-batch size for encoding")
-    parser.add_argument("--cache_batch_size", type=int, default=8, help="batch size for vision token precompute")
-    parser.add_argument("--vision_render_size", type=int, default=64, help="minimum rendered image/video size before Qwen3-VL vision encoding")
+    parser.add_argument(
+        "--vision_only_shard",
+        type=str2bool,
+        default=False,
+        help="only precompute vision tokens for one shard",
+    )
+    parser.add_argument(
+        "--shard_dir", type=str, default="", help="shard directory for --vision_only_shard"
+    )
+    parser.add_argument(
+        "--vision_mb", type=int, default=8, help="vision micro-batch size for encoding"
+    )
+    parser.add_argument(
+        "--cache_batch_size", type=int, default=8, help="batch size for vision token precompute"
+    )
+    parser.add_argument(
+        "--vision_render_size",
+        type=int,
+        default=64,
+        help="minimum rendered image/video size before Qwen3-VL vision encoding",
+    )
     parser.add_argument("--max_vars", type=int, default=400, help="max variables allowed")
-    parser.add_argument("--cleanup", type=str2bool, default=True, help="remove existing output directory before rebuild")
-    parser.add_argument("--resume", type=str2bool, default=False, help="resume from existing shard directory")
+    parser.add_argument(
+        "--cleanup",
+        type=str2bool,
+        default=True,
+        help="remove existing output directory before rebuild",
+    )
+    parser.add_argument(
+        "--resume", type=str2bool, default=False, help="resume from existing shard directory"
+    )
     parser.add_argument("--shard_size", type=int, default=32, help="samples per output shard")
-    parser.add_argument("--vision_jobs_per_gpu", type=int, default=1, help="max concurrent vision shard jobs per visible GPU")
-    parser.add_argument("--vision_backlog", type=int, default=16, help="max queued base-complete shards waiting for vision")
+    parser.add_argument(
+        "--vision_jobs_per_gpu",
+        type=int,
+        default=1,
+        help="max concurrent vision shard jobs per visible GPU",
+    )
+    parser.add_argument(
+        "--vision_backlog",
+        type=int,
+        default=16,
+        help="max queued base-complete shards waiting for vision",
+    )
 
     parser.add_argument("--seq_len", type=int, default=96, help="input sequence length")
     parser.add_argument("--pred_len", type=int, default=96, help="prediction sequence length")
@@ -109,18 +127,13 @@ def get_args():
     parser.add_argument("--train_ratio", type=float, default=0.70, help="train split ratio")
     parser.add_argument("--val_ratio", type=float, default=0.10, help="val split ratio")
     parser.add_argument("--test_ratio", type=float, default=0.20, help="test split ratio")
-    parser.add_argument(
-        "--window_profile",
-        type=str,
-        default="manual",
-        choices=["manual", "etth1", "etth2", "ettm1", "ettm2", "ili", "exchange", "electricity", "traffic", "weather", "solar"],
-        help="manual or dataset-specific window preset",
-    )
-    parser.add_argument("--window_demean", type=str2bool, default=False, help="manual mode: apply per-window de-mean (legacy)")
-    parser.add_argument("--window_norm", type=str2bool, default=False, help="manual mode: apply per-window std norm (legacy)")
 
-    parser.add_argument("--build_workers", type=int, default=8, help="parallel workers for window build")
-    parser.add_argument("--build_chunk_size", type=int, default=8, help="windows per worker task chunk")
+    parser.add_argument(
+        "--build_workers", type=int, default=8, help="parallel workers for window build"
+    )
+    parser.add_argument(
+        "--build_chunk_size", type=int, default=8, help="windows per worker task chunk"
+    )
     parser.add_argument("--log_every", type=int, default=100, help="progress log interval")
     return parser.parse_args()
 
@@ -138,39 +151,9 @@ def _num_windows_for_ranges(split_ranges, seq_len, pred_len):
     return starts
 
 
-def _build_split_ranges(args, data_path, total_len):
-    ett_freq = _infer_ett_freq(data_path)
-    is_ili = _is_ili_dataset(data_path)
-    use_patchtst_overlap = _uses_patchtst_overlap_split(data_path)
-    if ett_freq is not None:
-        border1s, border2s = _get_ett_borders(args.seq_len, ett_freq)
-        if border2s[-1] > total_len:
-            raise ValueError(f"ETT split exceeds data length: need {border2s[-1]} but T={total_len}")
-        split_ranges = list(zip(border1s, border2s))
-        split_sizes = [end - start - (args.seq_len + args.pred_len) + 1 for start, end in split_ranges]
-        if min(split_sizes) <= 0:
-            raise ValueError("invalid ETT split: not enough windows")
-        return split_ranges, split_sizes, True, is_ili, border2s[0]
-
-    train_T = int(total_len * args.train_ratio)
-    if use_patchtst_overlap:
-        border1s, border2s, train_T = _get_patchtst_overlap_borders(total_len, args.seq_len, float(args.train_ratio), float(args.test_ratio))
-        split_ranges = list(zip(border1s, border2s))
-    else:
-        train_end = int(total_len * args.train_ratio)
-        val_end = int(total_len * (args.train_ratio + args.val_ratio))
-        train_end = max(train_end, args.seq_len + args.pred_len)
-        val_end = max(val_end, train_end + args.seq_len + args.pred_len)
-        if val_end > total_len:
-            val_end = total_len
-        split_ranges = [(0, train_end), (train_end, val_end), (val_end, total_len)]
-    split_sizes = [max(0, end - start - (args.seq_len + args.pred_len) + 1) for start, end in split_ranges]
-    if min(split_sizes) <= 0:
-        raise ValueError("invalid ratio split: not enough windows for one of the splits")
-    return split_ranges, split_sizes, False, is_ili, train_T
-
-
-def _create_shard_arrays(shard_dir: str, n: int, seq_len: int, pred_len: int, c: int, num_patches: int, patch_len: int):
+def _create_shard_arrays(
+    shard_dir: str, n: int, seq_len: int, pred_len: int, c: int, num_patches: int
+):
     os.makedirs(shard_dir, exist_ok=True)
     shapes = {
         "x": (n, seq_len, c),
@@ -230,7 +213,9 @@ def _validate_npy_files(shard_dir: str, expected_files: dict) -> bool:
     return True
 
 
-def _base_marker_payload(shard_id: int, shard_start: int, shard_count: int, args, num_vars: int, num_patches: int) -> dict:
+def _base_marker_payload(
+    shard_id: int, shard_start: int, shard_count: int, args, num_vars: int, num_patches: int
+) -> dict:
     return {
         "version": 1,
         "id": int(shard_id),
@@ -273,10 +258,6 @@ def _process_window_chunk(task):
     pred_len = cfg["pred_len"]
     patch_len = cfg["patch_len"]
     stride = cfg["stride"]
-    num_patches = cfg["num_patches"]
-    window_norm = cfg["window_norm"]
-    window_demean = cfg["window_demean"]
-    window_norm_eps = cfg["window_norm_eps"]
     dtw_band = cfg["dtw_band"]
     dtw_eps = cfg["dtw_eps"]
     dtw_tau = cfg["dtw_tau"]
@@ -289,53 +270,34 @@ def _process_window_chunk(task):
 
     for offset, start_idx in enumerate(starts):
         idx = out_start + offset
-        x = data_norm[start_idx:start_idx + seq_len].copy()
-        y = data_norm[start_idx + seq_len:start_idx + seq_len + pred_len].copy()
+        x = data_norm[start_idx : start_idx + seq_len].copy()
+        y = data_norm[start_idx + seq_len : start_idx + seq_len + pred_len].copy()
 
         x_mm[idx] = x
         y_mm[idx] = y
-        x_aux = normalize_window_for_aux(x, eps=1e-5)
-        rel_source = fft_magnitude_features(x_aux)
-
-        dtw, cov, pear = compute_three_mats(
-            rel_source,
-            kind=f"Img sample{idx}",
-            dtw_band=dtw_band,
-            dtw_eps=dtw_eps,
-            verbose=False,
+        img_mm[idx], vid_mm[idx] = build_relation_grids(
+            x,
+            patch_len,
+            stride,
+            dtw_band,
+            dtw_eps,
+            dtw_tau,
+            cov_clip_lo,
+            cov_clip_hi,
         )
-        img_mm[idx] = mats_to_rgb_grid(
-            dtw,
-            cov,
-            pear,
-            cov_clip_lo=cov_clip_lo,
-            cov_clip_hi=cov_clip_hi,
-            dtw_tau=dtw_tau,
-        )
-
-        for p in range(num_patches):
-            patch_start = p * stride
-            patch = rel_source[patch_start:patch_start + patch_len]
-            dtw_p, cov_p, pear_p = compute_three_mats(
-                patch,
-                kind=f"Vid sample{idx} patch{p}",
-                dtw_band=min(dtw_band, patch_len),
-                dtw_eps=dtw_eps,
-                verbose=False,
-            )
-            vid_mm[idx, p] = mats_to_rgb_grid(
-                dtw_p,
-                cov_p,
-                pear_p,
-                cov_clip_lo=cov_clip_lo,
-                cov_clip_hi=cov_clip_hi,
-                dtw_tau=dtw_tau,
-            )
 
     return len(starts)
 
 
-def _build_shard_arrays(data_norm, shard_starts, shard_dir: str, cfg: dict, workers: int, chunk_size: int, log_every: int):
+def _build_shard_arrays(
+    data_norm,
+    shard_starts,
+    shard_dir: str,
+    cfg: dict,
+    workers: int,
+    chunk_size: int,
+    log_every: int,
+):
     n = len(shard_starts)
     c = int(data_norm.shape[1])
     memmap_info = _create_shard_arrays(
@@ -345,7 +307,6 @@ def _build_shard_arrays(data_norm, shard_starts, shard_dir: str, cfg: dict, work
         pred_len=cfg["pred_len"],
         c=c,
         num_patches=cfg["num_patches"],
-        patch_len=cfg["patch_len"],
     )
 
     global _FAST_DATA_NORM
@@ -353,7 +314,7 @@ def _build_shard_arrays(data_norm, shard_starts, shard_dir: str, cfg: dict, work
 
     tasks = []
     for out_start in range(0, n, chunk_size):
-        tasks.append((out_start, shard_starts[out_start:out_start + chunk_size]))
+        tasks.append((out_start, shard_starts[out_start : out_start + chunk_size]))
 
     if workers <= 1:
         _init_fast_worker(cfg, memmap_info)
@@ -381,7 +342,9 @@ def _build_shard_arrays(data_norm, shard_starts, shard_dir: str, cfg: dict, work
     return memmap_info
 
 
-def _precompute_vision_for_shard(shard_dir: str, args, num_patches: int, model, processor, patch_size: int, qwen_dir: str):
+def _precompute_vision_for_shard(
+    shard_dir: str, args, num_patches: int, model, processor, patch_size: int, qwen_dir: str
+):
     img_grids = np.load(os.path.join(shard_dir, "img_grid.npy"), mmap_mode="r")
     vid_grids = np.load(os.path.join(shard_dir, "vid_grids.npy"), mmap_mode="r")
     images, _img_stats = build_image_modality_from_grids(
@@ -425,7 +388,10 @@ def _precompute_vision_for_shard(shard_dir: str, args, num_patches: int, model, 
     _atomic_save_npy(os.path.join(shard_dir, "vid_tokens.npy"), vid_tokens)
     _atomic_save_npy(os.path.join(shard_dir, "vid_token_mask.npy"), vid_mask)
     _write_json_atomic(os.path.join(shard_dir, "vision_meta.json"), meta)
-    _write_json_atomic(os.path.join(shard_dir, VISION_DONE_MARKER), _vision_marker_payload(meta, len(img_token_seqs)))
+    _write_json_atomic(
+        os.path.join(shard_dir, VISION_DONE_MARKER),
+        _vision_marker_payload(meta, len(img_token_seqs)),
+    )
     return meta
 
 
@@ -458,7 +424,8 @@ def _run_vision_only_for_shard(args):
 def _launch_vision_job(gpu_id: str, shard_dir: str, out_dir: str, args):
     cmd = [
         sys.executable,
-        os.path.abspath(__file__),
+        "-m",
+        "data_provider.cache.electricity",
         "--vision_only_shard",
         "true",
         "--root_path",
@@ -483,8 +450,6 @@ def _launch_vision_job(gpu_id: str, shard_dir: str, out_dir: str, args):
         str(args.patch_len),
         "--stride",
         str(args.stride),
-        "--window_profile",
-        str(args.window_profile),
         "--shard_dir",
         str(shard_dir),
     ]
@@ -504,7 +469,9 @@ def _poll_vision_jobs(active_jobs, block: bool = False):
                 continue
             progressed = True
             if ret != 0:
-                raise RuntimeError(f"vision precompute failed for {shard_dir} on GPU {gpu_id} with code {ret}")
+                raise RuntimeError(
+                    f"vision precompute failed for {shard_dir} on GPU {gpu_id} with code {ret}"
+                )
             meta_path = os.path.join(shard_dir, "vision_meta.json")
             if os.path.exists(meta_path) and first_meta is None:
                 with open(meta_path, "r", encoding="utf-8") as f:
@@ -516,34 +483,6 @@ def _poll_vision_jobs(active_jobs, block: bool = False):
         if not block:
             return None
         time.sleep(1.0)
-    return first_meta
-
-
-def _dispatch_vision_precompute(out_dir: str, manifest: dict, args):
-    visible = [g for g in str(getattr(args, "gpus", "")).split(",") if g.strip()]
-    if not visible:
-        visible = ["0"]
-    jobs_per_gpu = max(1, int(getattr(args, "vision_jobs_per_gpu", 1)))
-    slots = visible * jobs_per_gpu
-    shard_dirs = [os.path.join(out_dir, f"shard_{int(s['id']):05d}") for s in manifest["shards"]]
-    active = []
-    first_meta = None
-
-    for shard_idx, shard_dir in enumerate(shard_dirs):
-        while len(active) >= len(slots):
-            meta = _poll_vision_jobs(active, block=True)
-            if meta is not None and first_meta is None:
-                first_meta = meta
-        gpu_id = slots[shard_idx % len(slots)]
-        active.append(_launch_vision_job(gpu_id, shard_dir, out_dir, args))
-
-    while active:
-        meta = _poll_vision_jobs(active, block=True)
-        if meta is not None and first_meta is None:
-            first_meta = meta
-
-    if first_meta is None:
-        raise RuntimeError("vision precompute finished but no vision_meta.json was written")
     return first_meta
 
 
@@ -621,12 +560,11 @@ def build_single_npz_fast(args, data_path, output_path):
     if output_path is None or str(output_path).strip() == "":
         output_path = _default_output_dir(data_path, pred_len=int(args.pred_len))
 
-    with time_block("npz.load_csv"):
-        use_no_header = bool(getattr(args, "no_header", False))
-        if not use_no_header and bool(getattr(args, "auto_header", True)):
-            has_header = _detect_header(data_path)
-            use_no_header = not has_header
-        df = pd.read_csv(data_path, header=None if use_no_header else "infer")
+    use_no_header = bool(getattr(args, "no_header", False))
+    if not use_no_header and bool(getattr(args, "auto_header", True)):
+        has_header = _detect_header(data_path)
+        use_no_header = not has_header
+    df = pd.read_csv(data_path, header=None if use_no_header else "infer")
     if "date" in df.columns:
         df_feat = df.drop(columns=["date"])
     else:
@@ -638,30 +576,27 @@ def build_single_npz_fast(args, data_path, output_path):
     if max_vars > 0 and c > max_vars:
         raise ValueError(f"too many variables C={c} exceeds max_vars={max_vars}")
 
-    split_ranges, split_sizes, use_ett_split, is_ili, train_T = _build_split_ranges(args, data_path, total_len)
+    split_ranges, split_sizes, use_ett_split, is_ili, train_T = build_split_ranges(
+        args, data_path, total_len
+    )
     use_patchtst_overlap = _uses_patchtst_overlap_split(data_path)
-    with time_block("npz.standardize"):
-        scaler = StandardScalerPerChannel()
-        scaler.fit(data[:train_T])
-        data_norm = scaler.transform(data)
-        mean = scaler.mean_.astype(np.float32)
-        std = scaler.std_.astype(np.float32)
-        data_min = data[:train_T].min(axis=0, keepdims=True).astype(np.float32)
-        data_max = data[:train_T].max(axis=0, keepdims=True).astype(np.float32)
+    scaler = StandardScalerPerChannel()
+    scaler.fit(data[:train_T])
+    data_norm = scaler.transform(data)
+    mean = scaler.mean_.astype(np.float32)
+    std = scaler.std_.astype(np.float32)
+    data_min = data[:train_T].min(axis=0, keepdims=True).astype(np.float32)
+    data_max = data[:train_T].max(axis=0, keepdims=True).astype(np.float32)
 
     num_patches = (args.seq_len - args.patch_len) // args.stride + 1
     if num_patches <= 0:
         raise ValueError("invalid patch params for seq_len/patch_len/stride")
 
-    window_norm, window_demean, auto_stats = _resolve_window_flags(args, data_path)
-    if window_norm or window_demean:
-        raise ValueError(
-            "legacy window_norm/window_demean is no longer supported. "
-            "Use the model-side normalizer instead."
-        )
     starts = _num_windows_for_ranges(split_ranges, args.seq_len, args.pred_len)
     n = len(starts)
-    out_dir = os.path.abspath(output_path if os.path.isabs(output_path) else os.path.join(args.root_path, output_path))
+    out_dir = os.path.abspath(
+        output_path if os.path.isabs(output_path) else os.path.join(args.root_path, output_path)
+    )
     manifest_path = os.path.join(out_dir, "manifest.json")
 
     resume = bool(getattr(args, "resume", False))
@@ -682,9 +617,6 @@ def build_single_npz_fast(args, data_path, output_path):
         "patch_len": int(args.patch_len),
         "stride": int(args.stride),
         "num_patches": int(num_patches),
-        "window_norm": bool(window_norm),
-        "window_demean": bool(window_demean),
-        "window_norm_eps": 1e-3,
         "dtw_band": 8,
         "dtw_eps": 1e-8,
         "dtw_tau": 1.0,
@@ -724,11 +656,8 @@ def build_single_npz_fast(args, data_path, output_path):
                 else ("exchange_patchtst_7_1_2_overlap" if use_patchtst_overlap else "ratio")
             )
         ),
-        "window_norm": bool(window_norm),
-        "window_demean": bool(window_demean),
-        "legacy_window_transform": bool(window_norm or window_demean),
+        "legacy_window_transform": False,
         "aux_window_standardize": True,
-        "auto_window": auto_stats,
         "columns": list(df_feat.columns),
         "mean": mean.reshape(-1).tolist(),
         "std": std.reshape(-1).tolist(),
@@ -774,7 +703,9 @@ def build_single_npz_fast(args, data_path, output_path):
                     continue
                 gpu_id = vision_slots[dispatch_idx % len(vision_slots)]
                 dispatch_idx += 1
-                active_vision_jobs.append(_launch_vision_job(gpu_id, queued_shard_dir, out_dir, args))
+                active_vision_jobs.append(
+                    _launch_vision_job(gpu_id, queued_shard_dir, out_dir, args)
+                )
                 dispatched = True
 
             if dispatched:
@@ -789,7 +720,7 @@ def build_single_npz_fast(args, data_path, output_path):
         if bool(getattr(args, "precompute_vision", False)):
             while len(ready_vision_queue) >= vision_backlog:
                 _service_vision(block=True)
-        shard_starts = starts[shard_start:shard_start + shard_size]
+        shard_starts = starts[shard_start : shard_start + shard_size]
         shard_count = len(shard_starts)
         shard_dir = os.path.join(out_dir, f"shard_{shard_id:05d}")
         print(f"[Shard] {shard_id} start={shard_start} count={shard_count}")
@@ -830,9 +761,13 @@ def build_single_npz_fast(args, data_path, output_path):
             shard_files.update(
                 {
                     "img_tokens": _to_rel(os.path.join(shard_dir, "img_tokens.npy"), out_dir),
-                    "img_token_mask": _to_rel(os.path.join(shard_dir, "img_token_mask.npy"), out_dir),
+                    "img_token_mask": _to_rel(
+                        os.path.join(shard_dir, "img_token_mask.npy"), out_dir
+                    ),
                     "vid_tokens": _to_rel(os.path.join(shard_dir, "vid_tokens.npy"), out_dir),
-                    "vid_token_mask": _to_rel(os.path.join(shard_dir, "vid_token_mask.npy"), out_dir),
+                    "vid_token_mask": _to_rel(
+                        os.path.join(shard_dir, "vid_token_mask.npy"), out_dir
+                    ),
                 }
             )
         manifest["shards"].append(
@@ -867,7 +802,7 @@ def build_single_npz_fast(args, data_path, output_path):
         json.dump(manifest, f, indent=2, ensure_ascii=True)
     elapsed = time.time() - t0
     print(f"[Done] saved electricity shard manifest -> {manifest_path}")
-    print(f"[Total] electricity shard build time: {elapsed:.1f}s ({elapsed/60.0:.2f} min)")
+    print(f"[Total] electricity shard build time: {elapsed:.1f}s ({elapsed / 60.0:.2f} min)")
     return manifest_path
 
 
@@ -878,7 +813,9 @@ def main():
         total_start = time.perf_counter()
         _run_vision_only_for_shard(args)
         total_sec = time.perf_counter() - total_start
-        print(f"[Total] electricity vision-only shard time: {total_sec:.1f}s ({total_sec/60.0:.2f} min)")
+        print(
+            f"[Total] electricity vision-only shard time: {total_sec:.1f}s ({total_sec / 60.0:.2f} min)"
+        )
         return
     data_path = os.path.join(args.root_path, args.data_path)
     _apply_dataset_specific_overrides(args, data_path)
@@ -888,7 +825,7 @@ def main():
     total_start = time.perf_counter()
     build_single_npz_fast(args, data_path=data_path, output_path=args.output_path)
     total_sec = time.perf_counter() - total_start
-    print(f"[Total] electricity cache build time: {total_sec:.1f}s ({total_sec/60.0:.2f} min)")
+    print(f"[Total] electricity cache build time: {total_sec:.1f}s ({total_sec / 60.0:.2f} min)")
 
 
 if __name__ == "__main__":

@@ -1,178 +1,131 @@
 # MM-TS: Channel-Structured Vision-Language Modeling for Multivariate Time Series Forecasting
 
-This repository provides the implementation of **MM-TS** for multivariate time-series forecasting.
+This repository contains the implementation of MM-TS.
 
-## Introduction
+MM-TS computes channel relations from the FFT magnitude spectrum of each input
+window. These relations serve as both synthetic image/video inputs and structured
+attention biases in a Qwen3-VL backbone, alongside time-series patches and text
+prompts. A shared prediction head maps the temporal representations to future values.
 
-MM-TS builds multimodal time-series representations with Qwen3-VL and uses them for long-term forecasting. The repository includes the model code, cache builders, and reproduction scripts for the experiments.
+## Installation
 
-## Requirements
-
-Create a conda environment and install the dependencies:
+Use Python 3.10 or later and a CUDA-enabled PyTorch build compatible with your GPU.
 
 ```bash
-conda create -n mmts python=3.10
-conda activate mmts
+git clone https://github.com/phanm4822-sketch/MM-TS.git
+cd MM-TS
 pip install -r requirements.txt
 ```
 
-The code was tested with `transformers==4.57.3` and CUDA-enabled PyTorch. Install the PyTorch wheel that matches your CUDA driver if needed.
+The implementation requires `transformers==4.57.3`. Unit tests have been verified
+with PyTorch 2.8.0 and PEFT 0.21.0 on CPU.
 
-## Qwen3-VL Checkpoint
-
-MM-TS uses `Qwen/Qwen3-VL-2B-Instruct` from ModelScope:
-
-https://www.modelscope.cn/models/Qwen/Qwen3-VL-2B-Instruct
-
-Download the checkpoint locally:
-
-```bash
-pip install -U modelscope
-modelscope download --model Qwen/Qwen3-VL-2B-Instruct \
-  --local_dir ./Qwen3-VL-2B-Instruct
-```
-
-The scripts use `./Qwen3-VL-2B-Instruct` by default. To use another location:
+Download [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
+with its weights, configuration, processor and tokenizer, then set:
 
 ```bash
 export QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct
 ```
 
-## Datasets
+## Data preparation
 
-Datasets are not included in this repository. Please download the standard LTSF benchmark CSV files and place them under `./datasets`:
-
-```text
-datasets/ETTh1.csv
-datasets/ETTh2.csv
-datasets/ETTm1.csv
-datasets/ETTm2.csv
-datasets/exchange_rate.csv
-datasets/weather.csv
-datasets/national_illness.csv
-datasets/electricity.csv
-```
-
-## Quick Start
-
-Run full-shot long-term forecasting:
-
-```bash
-bash scripts/MMTS_long_1.0p.sh
-```
-
-Run few-shot long-term forecasting:
-
-```bash
-bash scripts/MMTS_long_0.05p.sh
-bash scripts/MMTS_long_0.1p.sh
-```
-
-Run selected datasets:
-
-```bash
-DATASETS="etth1" bash scripts/MMTS_long_1.0p.sh
-```
-
-The long-term scripts cover ETTh1, ETTh2, ETTm1, ETTm2, Weather, Exchange, ECL, and ILI. For ETTh1, the command above runs all four prediction lengths: 96, 192, 336, and 720.
-
-The first run builds the required cache automatically. Cache generation includes Qwen3-VL vision-token precomputation and requires a CUDA GPU.
-
-Additional reproduction scripts:
-
-Ablations on ETTh2 and Weather cover `full`, `w/o Vision`, `w/o Text`, and `w/o TS Bias`.
-
-```bash
-bash scripts/MMTS_ablation.sh
-```
-
-Zero-shot ETT transfer covers the six source-target directions reported in the appendix by default.
-
-```bash
-bash scripts/MMTS_zero_shot.sh
-```
-
-Five repeated-seed runs cover ETTh2 and Weather by default.
-
-```bash
-bash scripts/MMTS_five_runs.sh
-```
-
-Useful filters:
-
-```bash
-DATASETS="etth2" VARIANTS="wo_ts_bias" bash scripts/MMTS_ablation.sh
-TRANSFERS="etth1_to_etth2" bash scripts/MMTS_zero_shot.sh
-SEEDS="2021 2022" DATASETS="weather" bash scripts/MMTS_five_runs.sh
-```
-
-Useful overrides:
-
-```bash
-GPUS=0 QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct bash scripts/MMTS_long_1.0p.sh
-GPUS=0,1 MODEL_PARALLEL=true bash scripts/MMTS_long_1.0p.sh
-```
-
-## Usage
-
-You can also call the main entry directly:
-
-```bash
-python main.py \
-  --data_path datasets/weather.csv \
-  --output_dir runs/weather/pred96 \
-  --qwen_dir /path/to/Qwen3-VL-2B-Instruct \
-  --pred_len 96
-```
-
-For checkpoint evaluation:
-
-```bash
-python main.py \
-  --eval_only true \
-  --ckpt_path /path/to/best.latest.pt \
-  --data_path datasets/weather.csv \
-  --output_dir runs/eval/weather96 \
-  --qwen_dir /path/to/Qwen3-VL-2B-Instruct \
-  --pred_len 96
-```
-
-Metrics and checkpoints are saved under the selected `--output_dir`. For example:
+Download the benchmark datasets using the
+[PatchTST data links](https://github.com/yuqinie98/PatchTST#supervised-learning)
+and arrange the CSV files as follows:
 
 ```text
-runs/weather/pred96/weather/metrics.latest.json
-runs/weather/pred96/weather/checkpoints/best.latest.pt
+datasets/
+  ETTh1.csv
+  ETTh2.csv
+  ETTm1.csv
+  ETTm2.csv
+  weather.csv
+  electricity.csv
+  exchange_rate.csv
+  national_illness.csv
 ```
 
-## Cache
+Each file should contain a `date` column followed by numeric channel columns.
+Standardization is fitted on the training split. Relation matrices and frozen
+visual features are cached automatically on the first run and reused across seeds.
+Electricity uses sharded caches; all datasets share the same model and training loop.
+If the backbone or image rendering settings change, use a separate `--cache_dir`
+or rebuild with `--rebuild_cache true`.
 
-When `--data_path` points to a raw CSV file, `main.py` builds the corresponding cache under `./cache` automatically.
+## Training
 
-- Standard datasets use `cache/<dataset>_<pred_len>.npz`.
-- Electricity/ECL uses a sharded cache directory.
-- Changing `batch_size` does not require rebuilding the cache.
-- Rebuild the cache after changing `seq_len`, `pred_len`, `patch_len`, `stride`, or vision-cache settings.
-
-Manual cache generation:
+Run the scripts from the repository root with Bash:
 
 ```bash
-python -m data_provider.cache.build_cache \
-  --data_path datasets/weather.csv \
-  --output_path cache/weather_96.npz \
-  --qwen_dir /path/to/Qwen3-VL-2B-Instruct \
-  --pred_len 96
+# ETTh1, all four horizons, seed 2026
+GPUS=0 bash scripts/MMTS/etth1.sh
+
+# All eight datasets
+bash scripts/run_all.sh
+
+# Select datasets, horizon and seed
+DATASETS="etth1 ettm1 weather" HORIZONS="96" SEEDS=2026 bash scripts/run_all.sh
+
+# Run five seeds
+SEEDS="2026 2022 2023 2024 2025" bash scripts/run_all.sh
+
+# Print the commands without running them
+bash scripts/MMTS/electricity.sh --dry-run
 ```
 
-## Project Structure
+The scripts use input length 96 and horizons 96, 192, 336 and 720. For ILI, the
+input length is 104 and the horizons are 24, 36, 48 and 60. Dataset-specific
+hyperparameters are listed in [Performance configurations](docs/performance_config.md).
+Use `SEEDS` and `HORIZONS` to select runs. Other options can be appended to a
+script, for example `--num_workers 4`; see `python run.py --help` for the full list.
+
+Checkpoints are selected by validation MSE and evaluated on the test split.
+Any test scores logged during training are not used for checkpoint selection.
+Results and checkpoints are saved under:
 
 ```text
-.
-|-- data_provider/
-|-- exp/
-|-- layers/
-|-- models/
-|-- scripts/
-|-- utils/
-|-- main.py
-`-- requirements.txt
+runs/performance/<dataset>/seed<seed>/pred<horizon>/<source_dataset>/
+  metrics.latest.json
+  checkpoints/best.latest.pt
 ```
+
+Timestamped copies are retained, and each result includes the run configuration.
+
+## Evaluation
+
+Use the same dataset, horizon and configuration as the saved checkpoint:
+
+```bash
+HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
+  --eval_only true --ckpt_path /path/to/best.latest.pt
+```
+
+## Code structure
+
+```text
+run.py             training and evaluation entry point
+models/            MM-TS model and Qwen3-VL integration
+layers/            normalization, patch projection and token fusion
+exp/               training, validation and testing
+data_provider/     datasets, loaders and cache builders
+utils/             prompts, relation biases and attention utilities
+scripts/MMTS/      performance scripts for each dataset
+tests/             model and data pipeline tests
+```
+
+## Tests
+
+Tests use small randomly initialized models and synthetic data. Pretrained
+weights are not required. Set `MMTS_TOKENIZER_DIR` to include the tokenizer tests.
+
+```bash
+python -m unittest discover -s tests -v
+MMTS_TOKENIZER_DIR="$QWEN_DIR" python -m unittest discover -s tests -v
+```
+
+## Acknowledgements
+
+The code organization follows [PatchTST](https://github.com/yuqinie98/PatchTST)
+and [iTransformer](https://github.com/thuml/iTransformer). The backbone uses
+[Qwen3-VL](https://github.com/QwenLM/Qwen3-VL) through Transformers and PEFT.
+See [Sources and dependencies](docs/sources.md) for the upstream projects.

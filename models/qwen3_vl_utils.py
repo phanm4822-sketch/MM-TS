@@ -4,8 +4,6 @@ import torch
 from PIL import Image
 from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
 
-from utils import time_block
-
 
 def load_qwen3_vl(model_dir: str, device_map: str = "auto"):
     model = Qwen3VLForConditionalGeneration.from_pretrained(
@@ -22,7 +20,9 @@ def load_qwen3_vl(model_dir: str, device_map: str = "auto"):
 def freeze_qwen3_vl(model, freeze_lm: bool = True, freeze_vit: bool = True) -> None:
     base = getattr(model, "model", None)
     if base is None:
-        raise RuntimeError("model has no .model attribute; expected Qwen3VLForConditionalGeneration")
+        raise RuntimeError(
+            "model has no .model attribute; expected Qwen3VLForConditionalGeneration"
+        )
     if freeze_lm:
         for p in base.language_model.parameters():
             p.requires_grad = False
@@ -73,7 +73,9 @@ def apply_qwen3_vl_lora(model, args):
     layers = _parse_layer_list(getattr(args, "lora_target_layers", None), num_layers=num_layers)
 
     layers_pattern = None
-    if layers is not None and any(".language_model.layers." in name for name, _ in model.named_modules()):
+    if layers is not None and any(
+        ".language_model.layers." in name for name, _ in model.named_modules()
+    ):
         layers_pattern = "language_model.layers"
 
     lora_cfg = LoraConfig(
@@ -98,6 +100,7 @@ def apply_qwen3_vl_lora(model, args):
     )
     return model
 
+
 def encode_images_qwen3vl(
     model,
     processor,
@@ -112,40 +115,41 @@ def encode_images_qwen3vl(
 
     all_token_seqs = []
 
-    with time_block("vision.image.total"):
-        with torch.inference_mode():
-            for start in range(0, len(images), micro_bs):
-                end = min(len(images), start + micro_bs)
-                chunk = images[start:end]
-                with time_block(f"vision.image.preprocess[{start}:{end}]"):
-                    try:
-                        enc = processor.image_processor(
-                            images=chunk,
-                            return_tensors="pt",
-                            do_resize=False,
-                            do_center_crop=False,
-                        )
-                    except TypeError:
-                        enc = processor.image_processor(images=chunk, return_tensors="pt")
+    with torch.inference_mode():
+        for start in range(0, len(images), micro_bs):
+            end = min(len(images), start + micro_bs)
+            chunk = images[start:end]
+            try:
+                enc = processor.image_processor(
+                    images=chunk,
+                    return_tensors="pt",
+                    do_resize=False,
+                    do_center_crop=False,
+                )
+            except TypeError:
+                enc = processor.image_processor(images=chunk, return_tensors="pt")
 
-                keys = list(enc.keys())
-                pixel_values = enc.get("pixel_values", None)
-                image_grid_thw = enc.get("image_grid_thw", None)
+            keys = list(enc.keys())
+            pixel_values = enc.get("pixel_values", None)
+            image_grid_thw = enc.get("image_grid_thw", None)
 
-                if pixel_values is None or image_grid_thw is None:
-                    raise RuntimeError(f"processor did not return pixel_values/image_grid_thw. got keys={keys}")
+            if pixel_values is None or image_grid_thw is None:
+                raise RuntimeError(
+                    f"processor did not return pixel_values/image_grid_thw. got keys={keys}"
+                )
 
-                pixel_values = pixel_values.to(device)
-                image_grid_thw = image_grid_thw.to(device)
+            pixel_values = pixel_values.to(device)
+            image_grid_thw = image_grid_thw.to(device)
 
-                with time_block(f"vision.image.encode[{start}:{end}]"):
-                    if hasattr(base, "get_image_features"):
-                        img_feats_list, _deep = base.get_image_features(pixel_values, image_grid_thw)
-                    else:
-                        raise RuntimeError("model.model has no get_image_features; check transformers/model class")
+            if hasattr(base, "get_image_features"):
+                img_feats_list, _deep = base.get_image_features(pixel_values, image_grid_thw)
+            else:
+                raise RuntimeError(
+                    "model.model has no get_image_features; check transformers/model class"
+                )
 
-                for feats in img_feats_list:
-                    all_token_seqs.append(feats.detach().cpu())
+            for feats in img_feats_list:
+                all_token_seqs.append(feats.detach().cpu())
     return all_token_seqs
 
 
@@ -163,86 +167,42 @@ def encode_videos_qwen3vl(
 
     all_token_seqs = []
 
-    with time_block("vision.video.total"):
-        with torch.inference_mode():
-            for start in range(0, len(videos), micro_bs):
-                end = min(len(videos), start + micro_bs)
-                chunk = videos[start:end]
-                with time_block(f"vision.video.preprocess[{start}:{end}]"):
-                    try:
-                        enc = processor(videos=chunk, return_tensors="pt")
-                    except Exception:
-                        enc = processor.video_processor(
-                            videos=chunk,
-                            return_tensors="pt",
-                            do_sample_frames=False,
-                            do_resize=False,
-                        )
+    with torch.inference_mode():
+        for start in range(0, len(videos), micro_bs):
+            end = min(len(videos), start + micro_bs)
+            chunk = videos[start:end]
+            try:
+                enc = processor(videos=chunk, return_tensors="pt")
+            except Exception:
+                enc = processor.video_processor(
+                    videos=chunk,
+                    return_tensors="pt",
+                    do_sample_frames=False,
+                    do_resize=False,
+                )
 
-                keys = list(enc.keys())
-                pixel_values_videos = enc.get("pixel_values_videos", None)
-                video_grid_thw = enc.get("video_grid_thw", None)
+            keys = list(enc.keys())
+            pixel_values_videos = enc.get("pixel_values_videos", None)
+            video_grid_thw = enc.get("video_grid_thw", None)
 
-                if pixel_values_videos is None or video_grid_thw is None:
-                    raise RuntimeError(f"processor did not return pixel_values_videos/video_grid_thw. got keys={keys}")
+            if pixel_values_videos is None or video_grid_thw is None:
+                raise RuntimeError(
+                    f"processor did not return pixel_values_videos/video_grid_thw. got keys={keys}"
+                )
 
-                pixel_values_videos = pixel_values_videos.to(device)
-                video_grid_thw = video_grid_thw.to(device)
+            pixel_values_videos = pixel_values_videos.to(device)
+            video_grid_thw = video_grid_thw.to(device)
 
-                with time_block(f"vision.video.encode[{start}:{end}]"):
-                    if hasattr(base, "get_video_features"):
-                        vid_feats_list, _deep = base.get_video_features(pixel_values_videos, video_grid_thw)
-                    else:
-                        raise RuntimeError("model.model has no get_video_features; check transformers/model class")
+            if hasattr(base, "get_video_features"):
+                vid_feats_list, _deep = base.get_video_features(pixel_values_videos, video_grid_thw)
+            else:
+                raise RuntimeError(
+                    "model.model has no get_video_features; check transformers/model class"
+                )
 
-                for feats in vid_feats_list:
-                    all_token_seqs.append(feats.detach().cpu())
+            for feats in vid_feats_list:
+                all_token_seqs.append(feats.detach().cpu())
     return all_token_seqs
-
-
-def encode_text_global(
-    model,
-    processor,
-    prompt: str,
-    device: str,
-    max_length: int = 0,
-    pad: bool = False,
-    truncate: bool = False,
-    return_length: bool = False,
-):
-    kwargs = {"return_tensors": "pt"}
-    if max_length and max_length > 0:
-        if pad:
-            kwargs["padding"] = "max_length"
-            kwargs["max_length"] = int(max_length)
-        if truncate:
-            kwargs["truncation"] = True
-            kwargs["max_length"] = int(max_length)
-    enc = processor.tokenizer(prompt, **kwargs)
-    input_ids = enc.get("input_ids", None)
-    attn_mask = enc.get("attention_mask", None)
-    if input_ids is None:
-        raise RuntimeError("tokenizer did not return input_ids")
-
-    input_ids = input_ids.to(device)
-    if attn_mask is not None:
-        attn_mask = attn_mask.to(device)
-
-    with time_block("text.embed"):
-        with torch.inference_mode():
-            base = model.model
-            if isinstance(base, torch.nn.DataParallel):
-                base = base.module
-            emb_layer = base.get_input_embeddings()
-            token_embeds = emb_layer(input_ids)
-    token_embeds = token_embeds.detach().cpu()
-    if return_length:
-        if attn_mask is not None:
-            content_len = int(attn_mask.sum().item())
-        else:
-            content_len = int(input_ids.shape[1])
-        return token_embeds, content_len
-    return token_embeds
 
 
 def encode_text_batch(
@@ -253,6 +213,7 @@ def encode_text_batch(
     max_length: int = 0,
     pad: bool = True,
     truncate: bool = True,
+    return_metadata: bool = False,
 ):
     if not prompts:
         raise ValueError("prompts must be non-empty")
@@ -277,18 +238,37 @@ def encode_text_batch(
     if input_ids is None:
         raise RuntimeError("tokenizer did not return input_ids")
 
+    metadata = None
+    if return_metadata:
+        # Capture what was actually kept by the tokenizer, not just the template.
+        original = processor.tokenizer(prompts, padding=False, truncation=False)["input_ids"]
+        metadata = []
+        for i, prompt in enumerate(prompts):
+            valid_ids = input_ids[i] if attn_mask is None else input_ids[i][attn_mask[i].bool()]
+            ids = valid_ids.tolist()
+            metadata.append(
+                {
+                    "prompt": prompt,
+                    "encoded_text": processor.tokenizer.decode(ids, skip_special_tokens=False),
+                    "input_ids": ids,
+                    "token_count_before_truncation": len(original[i]),
+                    "effective_token_count": len(ids),
+                    "truncated": len(original[i]) > len(ids),
+                }
+            )
+
     input_ids = input_ids.to(device)
     if attn_mask is None:
         attn_mask = torch.ones_like(input_ids, dtype=torch.long)
     else:
         attn_mask = attn_mask.to(device)
 
-    with time_block("text.embed.batch"):
-        with torch.inference_mode():
-            base = model.model
-            if isinstance(base, torch.nn.DataParallel):
-                base = base.module
-            emb_layer = base.get_input_embeddings()
-            token_embeds = emb_layer(input_ids)
+    with torch.inference_mode():
+        base = model.model
+        if isinstance(base, torch.nn.DataParallel):
+            base = base.module
+        emb_layer = base.get_input_embeddings()
+        token_embeds = emb_layer(input_ids)
 
-    return token_embeds.detach().cpu(), attn_mask.detach().cpu()
+    result = (token_embeds.detach().cpu(), attn_mask.detach().cpu())
+    return (*result, metadata) if return_metadata else result
