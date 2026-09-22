@@ -78,7 +78,7 @@ bash scripts/MMTS/electricity.sh --dry-run
 
 The scripts use input length 96 and horizons 96, 192, 336 and 720. For ILI, the
 input length is 104 and the horizons are 24, 36, 48 and 60. Dataset-specific
-hyperparameters are listed in [Performance configurations](docs/performance_config.md).
+hyperparameters are set in `scripts/MMTS/`.
 Use `SEEDS` and `HORIZONS` to select runs. Other options can be appended to a
 script, for example `--num_workers 4`; see `python run.py --help` for the full list.
 
@@ -112,15 +112,4 @@ exp/               training, validation and testing
 data_provider/     datasets, loaders and cache builders
 utils/             prompts, relation biases and attention utilities
 scripts/MMTS/      performance scripts for each dataset
-tests/             model and data pipeline tests
-```
-
-## Tests
-
-Tests run on CPU with small randomly initialized models and synthetic data.
-Set `MMTS_TOKENIZER_DIR` to include the tokenizer tests.
-
-```bash
-python -m unittest discover -s tests -v
-MMTS_TOKENIZER_DIR="$QWEN_DIR" python -m unittest discover -s tests -v
 ```
