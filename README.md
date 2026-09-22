@@ -124,10 +124,3 @@ Set `MMTS_TOKENIZER_DIR` to include the tokenizer tests.
 python -m unittest discover -s tests -v
 MMTS_TOKENIZER_DIR="$QWEN_DIR" python -m unittest discover -s tests -v
 ```
-
-## Acknowledgement
-
-The code organization follows [PatchTST](https://github.com/yuqinie98/PatchTST)
-and [iTransformer](https://github.com/thuml/iTransformer). The backbone uses
-[Qwen3-VL](https://github.com/QwenLM/Qwen3-VL) through Transformers and PEFT.
-See [Sources and dependencies](docs/sources.md) for the upstream projects.
