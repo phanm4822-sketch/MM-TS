@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 def _gate_scale(gate: torch.Tensor, device: str, dtype: torch.dtype) -> torch.Tensor:
-    # Keep zero init neutral: sigmoid(0)=0.5, so rescale to make 0 -> 1.0.
+    # A zero-initialized gate gives a scale of 1.
     return (2.0 * torch.sigmoid(gate)).to(device=device, dtype=dtype)
 
 
@@ -90,7 +90,6 @@ def fuse_modalities(
         txt_embeds = txt_embeds * torch.as_tensor(
             float(text_scale), device=device, dtype=model_dtype
         )
-    txt_len = int(txt_embeds.shape[1])
 
     img_tokens, img_mask = _as_stacked_tokens(
         img_token_seqs, device=device, embed_dim=embed_dim, dtype=model_dtype
@@ -134,7 +133,7 @@ def fuse_modalities(
     fused = torch.cat([b[1] for b in blocks], dim=1)
     attn_mask = torch.cat([b[2] for b in blocks], dim=1)
 
-    # compute ts range based on actual order
+    # TS tokens follow the text, image and video prefix.
     ts_start = 0
     for name, tokens, _mask in blocks:
         if name == "ts":
@@ -142,11 +141,4 @@ def fuse_modalities(
         ts_start += int(tokens.shape[1])
     ts_end = ts_start + ts_len - 1
 
-    token_counts = {
-        "img": int(img_tokens.shape[1]),
-        "vid": int(vid_tokens.shape[1]),
-        "ts": ts_len,
-        "text": txt_len,
-        "total": int(fused.shape[1]),
-    }
-    return fused, attn_mask, (ts_start, ts_end), token_counts
+    return fused, attn_mask, (ts_start, ts_end)

@@ -363,7 +363,7 @@ def build_single_npz(args, data_path: str, output_path: Optional[str]) -> None:
     img_grid = np.empty((n, C, C, 3), dtype=np.float32)
     vid_grids = np.empty((n, num_patches, C, C, 3), dtype=np.float32)
 
-    # Fixed stats config to reduce CLI surface area.
+    # Spectral relation settings.
     dtw_band = 8
     dtw_eps = 1e-8
     dtw_tau = 1.0
@@ -537,7 +537,7 @@ def main():
             bool(getattr(args, "precompute_vision", False))
             and int(getattr(args, "num_shards", 1)) > 1
         ):
-            # Orchestrate multi-GPU vision precompute with shards.
+            # Precompute one vision shard per GPU job.
             base_path = os.path.splitext(
                 os.path.abspath(
                     run_args.output_path

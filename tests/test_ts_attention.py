@@ -1,8 +1,4 @@
-"""Structural checks for token identity, visibility, and Qwen integration.
-
-Run with: python -m unittest discover -s tests -v
-Uses tiny randomly initialized models, not pretrained weights or benchmarks.
-"""
+"""Tests for token ordering, attention masks and Qwen integration."""
 
 from types import SimpleNamespace
 import unittest

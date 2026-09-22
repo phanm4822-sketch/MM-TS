@@ -1,8 +1,4 @@
-"""Checks for the forecasting head, signed bias and complete prompt budget.
-
-Set MMTS_TOKENIZER_DIR to a local Qwen3-VL-2B tokenizer directory to include
-the tokenizer integration checks. No pretrained model weights are required.
-"""
+"""Tests for the forecasting head, signed bias and prompt tokenization."""
 
 import json
 import os
@@ -39,7 +35,7 @@ class ForecastingRecipeTests(unittest.TestCase):
             )
             torch.testing.assert_close(got, expected)
 
-    def test_plain_residual_has_no_relu_or_gate_and_head_only_reads_ts(self):
+    def test_residual_preserves_sign_and_head_reads_temporal_tokens(self):
         h = ForwardHarness()
         h.args = SimpleNamespace(
             **{
@@ -61,8 +57,6 @@ class ForecastingRecipeTests(unittest.TestCase):
         self.assertIsInstance(h.pred_head, nn.Linear)
         self.assertEqual(h.pred_head.in_features, 12)
         h.vlm = nn.Linear(1, 1)
-        # Residual addition is independent of any backbone gate parameter.
-        h.vlm.ts_residual_gate = nn.Parameter(torch.tensor(-100.0))
         h.test_backbone = nn.Identity()
         h.ts_normalizer = SimpleNamespace(normalize=lambda x: (x, None))
         ts = torch.arange(1.0, 25.0).reshape(1, 6, 4)

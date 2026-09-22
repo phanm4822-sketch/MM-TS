@@ -1,4 +1,4 @@
-"""Training, validation, evaluation and checkpoint orchestration."""
+"""Training, validation and testing for MM-TS."""
 
 import copy
 import json
@@ -9,7 +9,7 @@ import torch
 from data_provider.data_factory import data_provider, is_electricity_manifest, load_cache_metadata
 from exp.exp_basic import Exp_Basic
 from models.MMTS import Model
-from utils.tools import ensure_dir, print_box
+from utils.tools import ensure_dir
 from utils.config import MODEL_RECIPE
 from utils.ts_attention import validate_checkpoint_attention, validate_checkpoint_forecasting
 from utils.prompts import UNIFIED_PROMPT_VERSION
@@ -168,7 +168,6 @@ class Exp_Main(Exp_Basic):
 
     def _get_data(self, flag):
         if flag == "train":
-            print_box("0) Load data")
             data_path = getattr(self.args, "data_path", "unknown")
             if is_electricity_manifest(str(data_path)):
                 source = "electricity_shards"
@@ -195,7 +194,6 @@ class Exp_Main(Exp_Basic):
             self.model.configure_channels()
 
         if flag == "train" and hasattr(data_set, "split_sizes"):
-            print_box("1) Build dataset/dataloader")
             split_sizes = data_set.split_sizes
             print(
                 f"[Dataset] split=train windows={len(data_set)} "
@@ -238,7 +236,7 @@ class Exp_Main(Exp_Basic):
         return x, y, None, None, None, None, None, None
 
     @torch.no_grad()
-    def vali(self, vali_loader, num_patches: int):
+    def vali(self, vali_loader):
         self.model.ts_mlp.eval()
         self.model.pred_head.eval()
         self.model.eval()
@@ -278,7 +276,7 @@ class Exp_Main(Exp_Basic):
         mae_epoch = total_abs / max(1, total_count)
         loss_epoch = total_sq / max(1, total_count)
         if bool(getattr(self.args, "print_per_var_metrics", False)):
-            per_var = self._per_var_metrics(vali_loader, num_patches=num_patches)
+            per_var = self._per_var_metrics(vali_loader)
             print(f"[Val] per-var mse={per_var['mse']} mae={per_var['mae']}")
         return {"mse": mse_epoch, "mae": mae_epoch, "loss": loss_epoch}
 
@@ -289,7 +287,6 @@ class Exp_Main(Exp_Basic):
 
         optimizer = self._select_optimizer()
         scheduler = self._select_scheduler(optimizer)
-        num_patches = (self.args.seq_len - self.args.patch_len) // self.args.stride + 1
 
         metrics = {"train": [], "val": [], "test_epoch": [], "test": []}
         save_path, latest_path = self._build_metrics_paths()
@@ -365,11 +362,11 @@ class Exp_Main(Exp_Basic):
                 "mae": total_abs / max(1, total_count),
                 "loss": total_sq / max(1, total_count),
             }
-            val_metrics = self.vali(vali_loader, num_patches=num_patches)
+            val_metrics = self.vali(vali_loader)
             metrics["train"].append(train_metrics)
             metrics["val"].append(val_metrics)
             if eval_test_during_train and test_loader is not None:
-                test_metrics = self.vali(test_loader, num_patches=num_patches)
+                test_metrics = self.vali(test_loader)
                 metrics["test_epoch"].append(test_metrics)
                 print(
                     f"[Epoch {epoch + 1}] train mse={train_metrics['mse']:.6f} mae={train_metrics['mae']:.6f} | "
@@ -453,7 +450,6 @@ class Exp_Main(Exp_Basic):
     @torch.no_grad()
     def test(self):
         _test_data, test_loader = self._get_data(flag="test")
-        num_patches = (self.args.seq_len - self.args.patch_len) // self.args.stride + 1
         self.model.ts_mlp.eval()
         self.model.pred_head.eval()
         self.model.eval()
@@ -496,7 +492,7 @@ class Exp_Main(Exp_Basic):
         }
         print(f"[Test] mse={test_metrics['mse']:.6f} mae={test_metrics['mae']:.6f}")
         if bool(getattr(self.args, "print_per_var_metrics", False)):
-            per_var = self._per_var_metrics(test_loader, num_patches=num_patches)
+            per_var = self._per_var_metrics(test_loader)
             print(f"[Test] per-var mse={per_var['mse']} mae={per_var['mae']}")
         return test_metrics
 
@@ -510,7 +506,7 @@ class Exp_Main(Exp_Basic):
         return preds * std + mean, y * std + mean
 
     @torch.no_grad()
-    def _per_var_metrics(self, loader, num_patches: int):
+    def _per_var_metrics(self, loader):
         self.model.ts_mlp.eval()
         self.model.pred_head.eval()
         self.model.eval()

@@ -15,7 +15,7 @@ def reorder_ts_tokens(
     source_layout: str,
     target_layout: str,
 ) -> torch.Tensor:
-    """Reorder [B, C*P, ...] without changing channel/patch identities."""
+    """Convert [B, C*P, ...] between channel-major and patch-major order."""
     if source_layout not in TS_TOKEN_LAYOUTS or target_layout not in TS_TOKEN_LAYOUTS:
         raise ValueError(f"unknown TS token layout: {source_layout!r} -> {target_layout!r}")
     if num_vars <= 0 or num_patches <= 0:
@@ -36,11 +36,10 @@ def build_history_attention_mask(
     ts_range: tuple[int, int],
     dtype: torch.dtype,
 ) -> torch.Tensor:
-    """Keep the prefix causal; let all observed TS queries see all valid keys.
+    """Causal prefix attention and bidirectional observed-window attention.
 
-    TS occupies the final segment. Targets are not part of this sequence.
-    Invalid query rows may attend only to themselves to avoid empty softmax
-    rows; padded keys remain invisible to every valid query.
+    TS tokens form the final segment and attend to all valid keys.
+    Padded query rows retain their diagonal for a nonempty softmax.
     """
     if padding_mask.ndim != 2:
         raise ValueError("padding_mask must have shape [B, S]")
@@ -65,11 +64,7 @@ def build_history_attention_mask(
 
 
 def positions_from_padding_mask(padding_mask: torch.Tensor) -> torch.Tensor:
-    """Match Qwen3-VL's inputs_embeds-only RoPE positions from the 2D mask.
-
-    Pass these explicitly with the custom 4D mask: its safe padded-query
-    diagonals must not be mistaken for real tokens by Qwen's mask conversion.
-    """
+    """Compute Qwen3-VL RoPE positions from the original 2D padding mask."""
     if padding_mask.ndim != 2:
         raise ValueError("padding_mask must have shape [B, S]")
     positions = padding_mask.long().cumsum(-1) - 1
@@ -78,7 +73,7 @@ def positions_from_padding_mask(padding_mask: torch.Tensor) -> torch.Tensor:
 
 
 def validate_checkpoint_attention(args, checkpoint_args: dict) -> None:
-    """Prevent loading checkpoints with different token semantics."""
+    """Validate checkpoint token layout and attention mode."""
     settings = (
         ("ts_token_layout", DEFAULT_TS_TOKEN_LAYOUT, "channel_major"),
         ("ts_attention_mode", DEFAULT_TS_ATTENTION_MODE, "causal"),
@@ -92,7 +87,7 @@ def validate_checkpoint_attention(args, checkpoint_args: dict) -> None:
     if mismatches:
         raise ValueError(
             "Checkpoint attention configuration mismatch (" + "; ".join(mismatches) + "). "
-            "Use the source version matching that checkpoint, or train the current architecture. "
+            "Load a checkpoint with a matching model configuration. "
             "Checkpoints without these settings are treated as channel_major + causal."
         )
 

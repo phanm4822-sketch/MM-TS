@@ -47,8 +47,7 @@ def _resolve_split_indices(n: int, args, flag: str, meta: dict):
         if keep < train_idx.shape[0]:
             seed = int(getattr(args, "seed", 42))
             rng = np.random.default_rng(seed)
-            # Match TimeVLM-style few-shot runs: sample a random subset from the
-            # original train split while keeping val/test intact.
+            # Sample a subset of training windows.
             perm = rng.permutation(train_idx.shape[0])[:keep]
             train_idx = train_idx[perm]
 

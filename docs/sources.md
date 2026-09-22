@@ -7,6 +7,5 @@
 * [PEFT](https://github.com/huggingface/peft): LoRA adapters.
 * [PyTorch](https://github.com/pytorch/pytorch), [NumPy](https://github.com/numpy/numpy), [pandas](https://github.com/pandas-dev/pandas), and [Pillow](https://github.com/python-pillow/Pillow): tensor computation, data loading and image rendering.
 
-Upstream repositories and model cards provide their current license texts. This
-source distribution does not bundle pretrained weights, datasets or baseline
-repositories and does not relicense those external assets.
+Licenses for external code, pretrained weights and datasets are available from
+the respective projects.

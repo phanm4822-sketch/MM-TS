@@ -1,13 +1,17 @@
-# MM-TS: Channel-Structured Vision-Language Modeling for Multivariate Time Series Forecasting
+# MM-TS
 
-This repository contains the implementation of MM-TS.
+Implementation of **MM-TS: Channel-Structured Vision-Language Modeling for Multivariate Time Series Forecasting**.
 
-MM-TS computes channel relations from the FFT magnitude spectrum of each input
-window. These relations serve as both synthetic image/video inputs and structured
-attention biases in a Qwen3-VL backbone, alongside time-series patches and text
-prompts. A shared prediction head maps the temporal representations to future values.
+## Key Designs
 
-## Installation
+- **Visual relation tokens:** DTW similarity, covariance and Pearson correlation
+  on FFT magnitudes form RGB images and video frames for the Qwen3-VL backbone.
+- **Structured attention bias:** The same relations guide temporal-token attention,
+  with local relations in diagonal patch blocks and global relations in off-diagonal blocks.
+
+## Getting Started
+
+### 1. Installation
 
 Use Python 3.10 or later and a CUDA-enabled PyTorch build compatible with your GPU.
 
@@ -17,8 +21,7 @@ cd MM-TS
 pip install -r requirements.txt
 ```
 
-The implementation requires `transformers==4.57.3`. Unit tests have been verified
-with PyTorch 2.8.0 and PEFT 0.21.0 on CPU.
+The implementation uses `transformers==4.57.3`.
 
 Download [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
 with its weights, configuration, processor and tokenizer, then set:
@@ -27,7 +30,7 @@ with its weights, configuration, processor and tokenizer, then set:
 export QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct
 ```
 
-## Data preparation
+### 2. Data Preparation
 
 Download the benchmark datasets using the
 [PatchTST data links](https://github.com/yuqinie98/PatchTST#supervised-learning)
@@ -52,7 +55,7 @@ Electricity uses sharded caches; all datasets share the same model and training 
 If the backbone or image rendering settings change, use a separate `--cache_dir`
 or rebuild with `--rebuild_cache true`.
 
-## Training
+### 3. Training
 
 Run the scripts from the repository root with Bash:
 
@@ -79,8 +82,7 @@ hyperparameters are listed in [Performance configurations](docs/performance_conf
 Use `SEEDS` and `HORIZONS` to select runs. Other options can be appended to a
 script, for example `--num_workers 4`; see `python run.py --help` for the full list.
 
-Checkpoints are selected by validation MSE and evaluated on the test split.
-Any test scores logged during training are not used for checkpoint selection.
+The checkpoint with the lowest validation MSE is evaluated on the test split.
 Results and checkpoints are saved under:
 
 ```text
@@ -91,7 +93,7 @@ runs/performance/<dataset>/seed<seed>/pred<horizon>/<source_dataset>/
 
 Timestamped copies are retained, and each result includes the run configuration.
 
-## Evaluation
+### 4. Evaluation
 
 Use the same dataset, horizon and configuration as the saved checkpoint:
 
@@ -100,7 +102,7 @@ HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
   --eval_only true --ckpt_path /path/to/best.latest.pt
 ```
 
-## Code structure
+## Code Structure
 
 ```text
 run.py             training and evaluation entry point
@@ -115,15 +117,15 @@ tests/             model and data pipeline tests
 
 ## Tests
 
-Tests use small randomly initialized models and synthetic data. Pretrained
-weights are not required. Set `MMTS_TOKENIZER_DIR` to include the tokenizer tests.
+Tests run on CPU with small randomly initialized models and synthetic data.
+Set `MMTS_TOKENIZER_DIR` to include the tokenizer tests.
 
 ```bash
 python -m unittest discover -s tests -v
 MMTS_TOKENIZER_DIR="$QWEN_DIR" python -m unittest discover -s tests -v
 ```
 
-## Acknowledgements
+## Acknowledgement
 
 The code organization follows [PatchTST](https://github.com/yuqinie98/PatchTST)
 and [iTransformer](https://github.com/thuml/iTransformer). The backbone uses

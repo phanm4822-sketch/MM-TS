@@ -37,4 +37,4 @@ Dataset- and horizon-specific settings for supervised forecasting are listed bel
 | illness | 48 | 104 | 32 | 0.0002 | 0.0001 | 16 / 0.05 | 2.2 / 2.0 / 2.2 | 0.05 | false |
 | illness | 60 | 104 | 32 | 0.0002 | 0.0001 | 16 / 0.05 | 2.2 / 2.0 / 2.2 | 0.05 | false |
 
-The scripts additionally specify learning-rate scheduling and modality scales where applicable. Those values remain visible in each dataset script and are recorded in the run JSON. Public scripts default to seed 2026; `SEEDS="2026 2022 2023 2024 2025"` runs all five seeds with independent output directories.
+Learning-rate schedules and modality scales are specified in each dataset script. Run configurations are saved with the results. The default seed is 2026; use `SEEDS="2026 2022 2023 2024 2025"` to run five seeds.

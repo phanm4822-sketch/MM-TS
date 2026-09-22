@@ -1,9 +1,6 @@
-"""MM-TS: channel-structured multimodal forecasting.
+"""MM-TS forecasting model."""
 
-Model.forward consumes a normalized-dataset input window and its cached relation
-grids / visual tokens, and returns [batch, horizon, channels] predictions.
-"""
-
+from contextlib import nullcontext
 import json
 import math
 import os
@@ -100,7 +97,7 @@ class Model(nn.Module):
 
     @property
     def backbone(self):
-        # A property avoids registering the same weights twice in state_dict.
+        # Access the decoder through the optional PEFT wrapper.
         return self.vlm.model.model if hasattr(self.vlm, "peft_config") else self.vlm.model
 
     def _init_modality_params(self) -> None:
@@ -283,36 +280,21 @@ class Model(nn.Module):
             raise ValueError("ts_range is required for observed-history attention")
         position_ids = positions_from_padding_mask(attn_mask)
         attn_mask = build_history_attention_mask(attn_mask, ts_range, fused_embeds.dtype)
-        with torch.set_grad_enabled(use_grad):
-            if ts_attn_bias is None:
-                out = self.backbone(
-                    inputs_embeds=fused_embeds,
-                    attention_mask=attn_mask,
-                    position_ids=position_ids,
-                    use_cache=False,
-                    output_hidden_states=True,
-                    return_dict=True,
-                )
-            else:
-                with ts_attn_bias_context(
-                    ts_attn_bias,
-                    layer_idx=ts_attn_layer,
-                    bias_scale=ts_attn_bias_scale,
-                ):
-                    out = self.backbone(
-                        inputs_embeds=fused_embeds,
-                        attention_mask=attn_mask,
-                        position_ids=position_ids,
-                        use_cache=False,
-                        output_hidden_states=True,
-                        return_dict=True,
-                    )
-        if hasattr(out, "last_hidden_state") and out.last_hidden_state is not None:
-            return out.last_hidden_state
-        if hasattr(out, "hidden_states") and out.hidden_states:
-            return out.hidden_states[-1]
-        # Fallback to tuple-like output
-        return out[0]
+        bias_context = (
+            ts_attn_bias_context(ts_attn_bias, layer_idx=ts_attn_layer, bias_scale=ts_attn_bias_scale)
+            if ts_attn_bias is not None
+            else nullcontext()
+        )
+        with torch.set_grad_enabled(use_grad), bias_context:
+            out = self.backbone(
+                inputs_embeds=fused_embeds,
+                attention_mask=attn_mask,
+                position_ids=position_ids,
+                use_cache=False,
+                output_hidden_states=True,
+                return_dict=True,
+            )
+        return out.last_hidden_state
 
     def forward(
         self,
@@ -324,6 +306,7 @@ class Model(nn.Module):
         vid_tokens: torch.Tensor = None,
         vid_token_mask: torch.Tensor = None,
     ):
+        """Map x [B, L, C] and cached multimodal inputs to forecasts [B, H, C]."""
         num_patches = (self.args.seq_len - self.args.patch_len) // self.args.stride + 1
         train = self.training and torch.is_grad_enabled()
         x_model = x.to(self.device)
@@ -337,8 +320,8 @@ class Model(nn.Module):
         vid_stats = None
         if use_bias:
             if img_grids is not None and vid_grids is not None:
-                img_stats = self._stats_from_img_grids(img_grids)
-                vid_stats = self._stats_from_vid_grids(vid_grids)
+                img_stats = self._relation_stats(img_grids)
+                vid_stats = self._relation_stats(vid_grids)
             else:
                 raise ValueError("Structural bias requires cached image/video relation grids.")
 
@@ -348,13 +331,13 @@ class Model(nn.Module):
                 vid_token_seqs = (vid_tokens, vid_token_mask)
             else:
                 raise RuntimeError(
-                    "use_vision=True but no precomputed vision tokens found in batch. "
-                    "Rebuild .npz with --precompute_vision true."
+                    "Cached visual tokens are missing. "
+                    "Run from the source CSV with --rebuild_cache true."
                 )
         else:
             img_token_seqs, vid_token_seqs = [], []
 
-        fused_embeds, attn_mask, ts_range, token_counts = fuse_modalities(
+        fused_embeds, attn_mask, ts_range = fuse_modalities(
             model=self.vlm,
             ts_embeds=ts_embeds,
             img_token_seqs=img_token_seqs,
@@ -450,9 +433,7 @@ class Model(nn.Module):
             use_grad=bool(train),
         )
         ts_embeds = self._add_time_features(ts_embeds)
-        # Patch extraction, shared MLP projection, and identity embeddings use the
-        # canonical channel-major layout internally. Reorder only at the
-        # backbone boundary, after every token has its correct identity.
+        # Reorder embedded patches from c*P+p to p*C+c for the backbone.
         num_patches = (self.args.seq_len - self.args.patch_len) // self.args.stride + 1
         return reorder_ts_tokens(
             ts_embeds,
@@ -463,16 +444,8 @@ class Model(nn.Module):
         )
 
     @staticmethod
-    def _stats_from_img_grids(img_grids: torch.Tensor):
-        grids = to_numpy(img_grids)
-        dtw = (grids[..., 0] * 2.0 - 1.0).astype(np.float32)
-        cov = (grids[..., 1] * 2.0 - 1.0).astype(np.float32)
-        pear = (grids[..., 2] * 2.0 - 1.0).astype(np.float32)
-        return dtw, cov, pear
-
-    @staticmethod
-    def _stats_from_vid_grids(vid_grids: torch.Tensor):
-        grids = to_numpy(vid_grids)
+    def _relation_stats(relation_grids: torch.Tensor):
+        grids = to_numpy(relation_grids)
         dtw = (grids[..., 0] * 2.0 - 1.0).astype(np.float32)
         cov = (grids[..., 1] * 2.0 - 1.0).astype(np.float32)
         pear = (grids[..., 2] * 2.0 - 1.0).astype(np.float32)

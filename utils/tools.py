@@ -6,8 +6,7 @@ import torch
 
 
 def seed_everything(seed: int = 42) -> None:
-    # Set CUDA math workspace before kernels initialize so repeated runs are
-    # less sensitive to backend-specific reduction ordering.
+    # Configure deterministic CUDA operations.
     os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     random.seed(seed)
     np.random.seed(seed)
@@ -24,12 +23,6 @@ def seed_everything(seed: int = 42) -> None:
         torch.use_deterministic_algorithms(True, warn_only=True)
     except Exception:
         pass
-
-
-def print_box(title: str) -> None:
-    print("\n" + "=" * 90)
-    print(title)
-    print("=" * 90)
 
 
 def ensure_dir(path: str) -> None:

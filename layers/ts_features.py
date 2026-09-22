@@ -38,8 +38,7 @@ def decode_ts_predictions(
     if ts_tokens != expected:
         raise RuntimeError(f"ts token count mismatch: got {ts_tokens}, expected {expected}")
 
-    # The forecasting head groups patches by variable, independently of the
-    # backbone's token order. Undo the layout before flattening the patch sequence.
+    # Group tokens by channel before flattening the patch dimension.
     ts_hidden = reorder_ts_tokens(ts_hidden, num_vars, num_patches, token_layout, "channel_major")
     ts_view = ts_hidden.reshape(bsz, num_vars, num_patches, hdim)
     ts_pool = ts_view.reshape(bsz, num_vars, num_patches * hdim)

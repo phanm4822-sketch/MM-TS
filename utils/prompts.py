@@ -25,7 +25,7 @@ def dataset_context(dataset_name: str) -> tuple[str, str]:
 
 
 def build_unified_prompts(x: torch.Tensor, dataset_name: str, pred_len: int) -> list[str]:
-    """Describe only the observed, model-normalized window; never read targets."""
+    """Build prompts from normalized input-window statistics."""
     if x.ndim != 3 or x.shape[1] < 1 or x.shape[2] < 1:
         raise ValueError("prompt input must be [B, L, C] with nonempty L and C")
     domain, frequency = dataset_context(dataset_name)

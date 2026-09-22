@@ -240,7 +240,7 @@ def encode_text_batch(
 
     metadata = None
     if return_metadata:
-        # Capture what was actually kept by the tokenizer, not just the template.
+        # Record token counts and retained text after truncation.
         original = processor.tokenizer(prompts, padding=False, truncation=False)["input_ids"]
         metadata = []
         for i, prompt in enumerate(prompts):

@@ -1,4 +1,4 @@
-"""Small CPU checks for training/checkpoint plumbing and cache preparation."""
+"""Tests for training, checkpoint loading and cache preparation."""
 
 import json
 from pathlib import Path

@@ -194,8 +194,7 @@ def build_relation_grids(
 ):
     """Full-window FFT magnitudes, then frequency slices in FFT-bin order.
 
-    The p-th frequency relation is later assigned to the p-th temporal block.
-    This is an index correspondence, not a time-local Fourier transform.
+    Frequency-slice index p maps to temporal attention block p.
     """
     spectrum = fft_magnitude_features(normalize_window_for_aux(window, eps=1e-5))
     count = (len(window) - patch_len) // stride + 1
