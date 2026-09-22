@@ -13,7 +13,7 @@ Implementation of **MM-TS: Channel-Structured Vision-Language Modeling for Multi
 
 ### 1. Installation
 
-Use Python 3.10 or later and a CUDA-enabled PyTorch build compatible with your GPU.
+Use Python 3.10 or later and matching CUDA builds of PyTorch and torchvision.
 
 ```bash
 git clone https://github.com/phanm4822-sketch/MM-TS.git

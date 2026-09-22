@@ -119,15 +119,11 @@ def encode_images_qwen3vl(
         for start in range(0, len(images), micro_bs):
             end = min(len(images), start + micro_bs)
             chunk = images[start:end]
-            try:
-                enc = processor.image_processor(
-                    images=chunk,
-                    return_tensors="pt",
-                    do_resize=False,
-                    do_center_crop=False,
-                )
-            except TypeError:
-                enc = processor.image_processor(images=chunk, return_tensors="pt")
+            enc = processor.image_processor(
+                images=chunk,
+                return_tensors="pt",
+                do_resize=False,
+            )
 
             keys = list(enc.keys())
             pixel_values = enc.get("pixel_values", None)
@@ -171,15 +167,12 @@ def encode_videos_qwen3vl(
         for start in range(0, len(videos), micro_bs):
             end = min(len(videos), start + micro_bs)
             chunk = videos[start:end]
-            try:
-                enc = processor(videos=chunk, return_tensors="pt")
-            except Exception:
-                enc = processor.video_processor(
-                    videos=chunk,
-                    return_tensors="pt",
-                    do_sample_frames=False,
-                    do_resize=False,
-                )
+            enc = processor.video_processor(
+                videos=chunk,
+                return_tensors="pt",
+                do_sample_frames=False,
+                do_resize=False,
+            )
 
             keys = list(enc.keys())
             pixel_values_videos = enc.get("pixel_values_videos", None)
