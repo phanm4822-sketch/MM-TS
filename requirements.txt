@@ -9,3 +9,6 @@ pillow>=10.0
 safetensors
 sentencepiece
 protobuf
+numba>=0.60
+ninja>=1.11
+nvidia-cuda-cccl-cu12==12.6.77
