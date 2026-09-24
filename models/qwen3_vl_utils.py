@@ -250,6 +250,12 @@ def encode_text_batch(
                 }
             )
 
+    # Prompt lookup can reside on CPU when the frozen embedding is offloaded.
+    base = model.model
+    if isinstance(base, torch.nn.DataParallel):
+        base = base.module
+    emb_layer = base.get_input_embeddings()
+    device = emb_layer.weight.device
     input_ids = input_ids.to(device)
     if attn_mask is None:
         attn_mask = torch.ones_like(input_ids, dtype=torch.long)
@@ -257,10 +263,6 @@ def encode_text_batch(
         attn_mask = attn_mask.to(device)
 
     with torch.inference_mode():
-        base = model.model
-        if isinstance(base, torch.nn.DataParallel):
-            base = base.module
-        emb_layer = base.get_input_embeddings()
         token_embeds = emb_layer(input_ids)
 
     result = (token_embeds.detach().cpu(), attn_mask.detach().cpu())

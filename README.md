@@ -113,3 +113,79 @@ data_provider/     datasets, loaders and cache builders
 utils/             prompts, relation biases and attention utilities
 scripts/MMTS/      performance scripts for each dataset
 ```
+
+## Optional Runtime Optimizations
+
+The default entry point and checkpoint format are unchanged. Structural-bias
+assembly uses indexed gathers and the decoder no longer retains unused hidden
+states. These changes do not alter the forecast, attention mask or training recipe.
+
+For cached training/evaluation, offload frozen prompt embeddings and the unused
+visual encoder, and skip discarded DeepStack outputs:
+
+```bash
+HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh --optimize_runtime true
+
+# Additionally replay fixed-shape CUDA graphs (uses extra graph-pool memory).
+HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
+  --optimize_runtime true --cuda_graphs true
+```
+
+The graph path requires PyTorch 2.9.1. Graphs preserve the caller's precision and dropout RNG, retain all windows and
+channels, and use eager execution for differently shaped batches, including the
+last incomplete batch. Captured inputs and parameters must stay on one GPU;
+model parallelism is not supported by this optional path. Disable graphs if the
+additional graph pool does not fit. No batch size or precision is changed
+automatically. The runtime context restores module placement on exit.
+
+Inactive DeepStack weights are retained on CPU for strict compatibility with
+existing checkpoints. They are excluded from the active module's parameter
+iterator while optimized execution is enabled; they still occupy CPU memory and
+checkpoint storage. The vocabulary head shares the prompt embedding, so it does
+not count as an additional set of parameters. Frozen active weights still count
+toward total parameters.
+
+For online forecasting, `runtime.predict_window` constructs the same complete
+FFT relation grids and frozen visual features as the cache path. Supply float32
+observed windows standardized using **training-split** means and standard
+deviations. The returned predictions remain in standardized coordinates.
+
+```python
+import torch
+from runtime import optimized_runtime, predict_window
+
+# model: an initialized MM-TS Model with trained weights loaded and channels configured
+# windows: float32 NumPy array [batch, seq_len, num_vars], standardized as above
+model.eval()
+with torch.inference_mode(), optimized_runtime(
+    model, cached_visual=False, cuda_graphs=True, fast_vision=False
+):
+    prediction = predict_window(model, windows).clone()
+```
+
+Keep the context open across requests to reuse graphs. Clone graph outputs if
+retaining them across subsequent calls. Use one model per worker process; the
+relation/vision contexts are not intended for concurrent threads in one process.
+
+```bash
+pip install -r requirements-optimized.txt
+```
+
+The optional dependencies compile the unchanged DTW loop without fastmath.
+Without Numba the same loop runs in Python. `fast_vision=True` also enables a
+frozen BF16 patch-embedding extension and visual CUDA graphs. This specialization
+is explicitly limited to the validated **PyTorch 2.9.1+cu126, Transformers 4.57.3,
+Ada GPU** environment; other environments should keep it disabled. It needs a
+C++ compiler and CUDA headers, builds on first use, and stores compiled artifacts
+in PyTorch's extension cache (configurable with `TORCH_EXTENSIONS_DIR`). Build and
+graph warm-up costs are separate from steady-state inference.
+
+Run the CPU equivalence and strict-checkpoint checks without downloading weights:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+`runtime/` contains the optional execution code; `tests/` contains correctness
+checks. Experiment logs, measurements, datasets, caches, checkpoints and compiled
+binaries are not part of this repository.

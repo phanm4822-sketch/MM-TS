@@ -46,25 +46,16 @@ def build_ts_attention_bias(
     if vid.shape[0] != img.shape[0]:
         raise ValueError("img_stats and vid_stats must have the same batch size")
 
-    bsz = int(img.shape[0])
-    ts_len = num_patches * num_vars
-    bias = torch.empty((bsz, ts_len, ts_len), device=device, dtype=dtype)
-    # Match the actual backbone layout: c*P+p or p*C+c.
-    channels = torch.arange(num_vars, device=device)
-    patch_indices = [
-        channels * num_patches + p if token_layout == "channel_major" else p * num_vars + channels
-        for p in range(num_patches)
-    ]
-    for i in range(num_patches):
-        rows = patch_indices[i]
-        for j in range(num_patches):
-            cols = patch_indices[j]
-            if i == j:
-                block = vid[:, i]
-            else:
-                block = img
-            bias[:, rows[:, None], cols[None, :]] = block
-    return bias
+    # Gather the same blocks without P squared Python assignments. Keep the
+    # statistic combination above unchanged, including its arithmetic order.
+    ids = torch.arange(num_patches * num_vars, device=device)
+    if token_layout == "patch_major":
+        patch, channel = ids // num_vars, ids % num_vars
+    else:
+        patch, channel = ids % num_patches, ids // num_patches
+    global_bias = img[:, channel[:, None], channel[None, :]]
+    local_bias = vid[:, patch[:, None], channel[:, None], channel[None, :]]
+    return torch.where((patch[:, None] == patch[None, :])[None], local_bias, global_bias)
 
 
 def build_full_ts_attention_bias(

@@ -291,7 +291,7 @@ class Model(nn.Module):
                 attention_mask=attn_mask,
                 position_ids=position_ids,
                 use_cache=False,
-                output_hidden_states=True,
+                output_hidden_states=False,
                 return_dict=True,
             )
         return out.last_hidden_state

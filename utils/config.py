@@ -10,6 +10,8 @@ BASE_DEFAULTS = {
     "qwen_dir": "Qwen3-VL-2B-Instruct",
     "gpus": "0",
     "model_parallel": False,
+    "optimize_runtime": False,
+    "cuda_graphs": False,
     "eval_only": False,
     "ckpt_path": "",
     "save_checkpoint": True,
@@ -116,6 +118,10 @@ def build_parser(defaults: dict, description: str):
         "--qwen_dir", type=str, default=defaults["qwen_dir"], help="Qwen3-VL model directory"
     )
     parser.add_argument("--gpus", type=str, default=defaults["gpus"], help="visible GPU ids")
+    parser.add_argument("--optimize_runtime", type=str2bool, default=defaults.get("optimize_runtime", False),
+                        help="offload frozen cached-input modules and skip unused visual outputs")
+    parser.add_argument("--cuda_graphs", type=str2bool, default=defaults.get("cuda_graphs", False),
+                        help="opt-in CUDA graph replay; requires optimize_runtime")
     parser.add_argument(
         "--model_parallel",
         type=str2bool,

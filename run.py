@@ -1,11 +1,14 @@
 """Command-line entry point for MM-TS forecasting."""
 
 import os
+from contextlib import nullcontext
 from utils.config import get_args
 
 
 def main():
     args = get_args()
+    if args.cuda_graphs and not args.optimize_runtime:
+        raise ValueError("--cuda_graphs true requires --optimize_runtime true")
     if str(args.gpus).strip():
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpus)
     os.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -26,11 +29,16 @@ def main():
     args = _ensure_dataset_cache(args)
     seed_everything(args.seed)
     exp = Exp_Main(args)
-    if args.eval_only:
-        exp.load_checkpoint(args.ckpt_path)
-        exp.save_eval_metrics(exp.test(), ckpt_path=args.ckpt_path)
-    else:
-        exp.train()
+    runtime = nullcontext()
+    if args.optimize_runtime:
+        from runtime import optimized_runtime
+        runtime = optimized_runtime(exp.model, cached_visual=True, cuda_graphs=args.cuda_graphs)
+    with runtime:
+        if args.eval_only:
+            exp.load_checkpoint(args.ckpt_path)
+            exp.save_eval_metrics(exp.test(), ckpt_path=args.ckpt_path)
+        else:
+            exp.train()
 
 
 if __name__ == "__main__":
