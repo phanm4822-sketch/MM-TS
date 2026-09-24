@@ -15,7 +15,6 @@ venv/
 *.npz
 .DS_Store
 
-# Local experiment outputs, downloaded assets and compiled extensions.
 /data/
 /results/
 /logs/

@@ -42,16 +42,9 @@ class _Prepared(torch.nn.Module):
 
 @contextmanager
 def graphed_core(model):
-    """Keep at most one graph per mode; preserve tail batches and autocast.
-
-    Capture is lazy, after channel-dependent modules have been initialized.
-    Training capture preserves RNG so dropout starts at the same generator
-    state as eager execution. No optimizer update runs during capture.
-    """
+    """Capture one input shape per train/eval mode; run other shapes eagerly."""
     if torch.__version__.split("+")[0] != "2.9.1":
-        raise RuntimeError(
-            "CUDA graph execution is validated on PyTorch 2.9.1; disable cuda_graphs on other versions"
-        )
+        raise RuntimeError("cuda_graphs requires PyTorch 2.9.1")
     original = model.forward
     signature = inspect.signature(original)
     holders = {}
@@ -61,7 +54,7 @@ def graphed_core(model):
         bound = signature.bind(*args, **kwargs)
         kwargs = {k: v for k, v in bound.arguments.items() if v is not None}
         training = bool(model.training and torch.is_grad_enabled())
-        # eval() alone does not disable autograd outside the backbone.
+        # Evaluation graphs require disabled autograd.
         if not training and torch.is_grad_enabled():
             return original(**kwargs)
         if any(not isinstance(v, torch.Tensor) for v in kwargs.values()):
@@ -101,10 +94,12 @@ def graphed_core(model):
             static = tuple(
                 x.detach().clone().requires_grad_(x.requires_grad) for x in inputs
             )
-            # Match the caller's precision; disabling the autocast weight cache
-            # is required by make_graphed_callables, not a precision change.
-            with torch.cuda.device(model.device), torch.autocast(
-                "cuda", enabled=amp_enabled, dtype=amp_dtype, cache_enabled=False
+            # Graph capture requires the autocast weight cache to be disabled.
+            with (
+                torch.cuda.device(model.device),
+                torch.autocast(
+                    "cuda", enabled=amp_enabled, dtype=amp_dtype, cache_enabled=False
+                ),
             ):
                 if training:
                     with torch.random.fork_rng(devices=[model.device.index or 0]):

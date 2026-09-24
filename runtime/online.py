@@ -1,4 +1,4 @@
-"""Online forecasting with the same relation grids and visual-token precision as cache construction."""
+"""Online forecasts from standardized input windows."""
 
 import numpy as np
 import torch
@@ -8,9 +8,8 @@ import torch
 def predict_window(model, standardized_windows):
     """Predict [B, H, C] from float32 [B, L, C] standardized observed windows.
 
-    Fit channel means/stds on training data only and apply them before calling.
-    This function does not fit a scaler or change model precision. Call eval()
-    first. Graph outputs share storage: clone if retaining across later calls.
+    Inputs and outputs use training-split standardization. Call model.eval()
+    before inference. Clone graph outputs before the next call to retain them.
     """
     from data_provider.cache.common import build_relation_grids
     from layers.modality_builder import (
@@ -47,8 +46,7 @@ def predict_window(model, standardized_windows):
                 video_grids, video_grids.shape[1], args, patch_size
             )
             processor = model.processor
-            # Frozen visual features use native backbone precision, then the
-            # same float16 storage round-trip as the on-disk cache.
+            # Match the float16 feature storage used by the cache.
             with torch.autocast(model.device.type, enabled=False):
                 enc = processor.image_processor(
                     images=images, return_tensors="pt", do_resize=False

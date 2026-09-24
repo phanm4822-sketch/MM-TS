@@ -95,7 +95,9 @@ def str2bool(value: str) -> bool:
 def build_parser(defaults: dict, description: str):
     parser = argparse.ArgumentParser(description=description, allow_abbrev=False)
 
-    parser.add_argument("--root_path", type=str, default=defaults["root_path"], help="project root")
+    parser.add_argument(
+        "--root_path", type=str, default=defaults["root_path"], help="project root"
+    )
     parser.add_argument(
         "--data_path",
         type=str,
@@ -115,13 +117,26 @@ def build_parser(defaults: dict, description: str):
         help="directory for metrics/checkpoints",
     )
     parser.add_argument(
-        "--qwen_dir", type=str, default=defaults["qwen_dir"], help="Qwen3-VL model directory"
+        "--qwen_dir",
+        type=str,
+        default=defaults["qwen_dir"],
+        help="Qwen3-VL model directory",
     )
-    parser.add_argument("--gpus", type=str, default=defaults["gpus"], help="visible GPU ids")
-    parser.add_argument("--optimize_runtime", type=str2bool, default=defaults.get("optimize_runtime", False),
-                        help="offload frozen cached-input modules and skip unused visual outputs")
-    parser.add_argument("--cuda_graphs", type=str2bool, default=defaults.get("cuda_graphs", False),
-                        help="opt-in CUDA graph replay; requires optimize_runtime")
+    parser.add_argument(
+        "--gpus", type=str, default=defaults["gpus"], help="visible GPU ids"
+    )
+    parser.add_argument(
+        "--optimize_runtime",
+        type=str2bool,
+        default=defaults.get("optimize_runtime", False),
+        help="offload frozen modules during cached training and evaluation",
+    )
+    parser.add_argument(
+        "--cuda_graphs",
+        type=str2bool,
+        default=defaults.get("cuda_graphs", False),
+        help="CUDA graph replay; requires optimize_runtime",
+    )
     parser.add_argument(
         "--model_parallel",
         type=str2bool,
@@ -135,7 +150,10 @@ def build_parser(defaults: dict, description: str):
         help="load checkpoint and test only",
     )
     parser.add_argument(
-        "--ckpt_path", type=str, default=defaults["ckpt_path"], help="checkpoint path for eval_only"
+        "--ckpt_path",
+        type=str,
+        default=defaults["ckpt_path"],
+        help="checkpoint path for eval_only",
     )
     parser.add_argument(
         "--save_checkpoint",
@@ -156,7 +174,10 @@ def build_parser(defaults: dict, description: str):
         help="vision-cache batch size",
     )
     parser.add_argument(
-        "--vision_mb", type=int, default=defaults["vision_mb"], help="vision micro-batch size"
+        "--vision_mb",
+        type=int,
+        default=defaults["vision_mb"],
+        help="vision micro-batch size",
     )
     parser.add_argument(
         "--vision_render_size",
@@ -169,23 +190,45 @@ def build_parser(defaults: dict, description: str):
         "--seq_len", type=int, default=defaults["seq_len"], help="input sequence length"
     )
     parser.add_argument(
-        "--pred_len", type=int, default=defaults["pred_len"], help="prediction sequence length"
+        "--pred_len",
+        type=int,
+        default=defaults["pred_len"],
+        help="prediction sequence length",
     )
-    parser.add_argument("--patch_len", type=int, default=defaults["patch_len"], help="patch length")
-    parser.add_argument("--stride", type=int, default=defaults["stride"], help="patch stride")
-    parser.add_argument("--batch_size", type=int, default=defaults["batch_size"], help="batch size")
     parser.add_argument(
-        "--num_workers", type=int, default=defaults["num_workers"], help="dataloader workers"
+        "--patch_len", type=int, default=defaults["patch_len"], help="patch length"
+    )
+    parser.add_argument(
+        "--stride", type=int, default=defaults["stride"], help="patch stride"
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=defaults["batch_size"], help="batch size"
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=defaults["num_workers"],
+        help="dataloader workers",
     )
 
     parser.add_argument(
-        "--embed_dim", type=int, default=defaults["embed_dim"], help="embedding dimension"
+        "--embed_dim",
+        type=int,
+        default=defaults["embed_dim"],
+        help="embedding dimension",
     )
-    parser.add_argument("--epochs", type=int, default=defaults["epochs"], help="training epochs")
     parser.add_argument(
-        "--patience", type=int, default=defaults["patience"], help="early stopping patience"
+        "--epochs", type=int, default=defaults["epochs"], help="training epochs"
     )
-    parser.add_argument("--lr", type=float, default=defaults["lr"], help="learning rate")
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=defaults["patience"],
+        help="early stopping patience",
+    )
+    parser.add_argument(
+        "--lr", type=float, default=defaults["lr"], help="learning rate"
+    )
     parser.add_argument(
         "--lr_schedule",
         type=str,
@@ -200,10 +243,16 @@ def build_parser(defaults: dict, description: str):
         help="minimum lr ratio for cosine schedule",
     )
     parser.add_argument(
-        "--weight_decay", type=float, default=defaults["weight_decay"], help="AdamW weight decay"
+        "--weight_decay",
+        type=float,
+        default=defaults["weight_decay"],
+        help="AdamW weight decay",
     )
     parser.add_argument(
-        "--log_interval", type=int, default=defaults["log_interval"], help="log every N batches"
+        "--log_interval",
+        type=int,
+        default=defaults["log_interval"],
+        help="log every N batches",
     )
     parser.add_argument(
         "--max_train_batches",
@@ -249,7 +298,10 @@ def build_parser(defaults: dict, description: str):
         help="use precomputed visual tokens",
     )
     parser.add_argument(
-        "--use_text", type=str2bool, default=defaults["use_text"], help="use text prompt tokens"
+        "--use_text",
+        type=str2bool,
+        default=defaults["use_text"],
+        help="use text prompt tokens",
     )
     parser.add_argument(
         "--img_scale",
@@ -330,9 +382,14 @@ def build_parser(defaults: dict, description: str):
         help="enable TS residual path",
     )
 
-    parser.add_argument("--seed", type=int, default=defaults["seed"], help="random seed")
     parser.add_argument(
-        "--use_gpu", type=str2bool, default=defaults["use_gpu"], help="use GPU if available"
+        "--seed", type=int, default=defaults["seed"], help="random seed"
+    )
+    parser.add_argument(
+        "--use_gpu",
+        type=str2bool,
+        default=defaults["use_gpu"],
+        help="use GPU if available",
     )
     parser.add_argument(
         "--use_lora",
@@ -340,10 +397,17 @@ def build_parser(defaults: dict, description: str):
         default=defaults["use_lora"],
         help="enable LoRA on text backbone",
     )
-    parser.add_argument("--lora_r", type=int, default=defaults["lora_r"], help="LoRA rank")
-    parser.add_argument("--lora_alpha", type=int, default=defaults["lora_alpha"], help="LoRA alpha")
     parser.add_argument(
-        "--lora_dropout", type=float, default=defaults["lora_dropout"], help="LoRA dropout"
+        "--lora_r", type=int, default=defaults["lora_r"], help="LoRA rank"
+    )
+    parser.add_argument(
+        "--lora_alpha", type=int, default=defaults["lora_alpha"], help="LoRA alpha"
+    )
+    parser.add_argument(
+        "--lora_dropout",
+        type=float,
+        default=defaults["lora_dropout"],
+        help="LoRA dropout",
     )
     parser.add_argument(
         "--lora_target_modules",
@@ -358,7 +422,10 @@ def build_parser(defaults: dict, description: str):
         help="comma-separated LoRA target layers",
     )
     parser.add_argument(
-        "--freeze_lm", type=str2bool, default=defaults["freeze_lm"], help="freeze language backbone"
+        "--freeze_lm",
+        type=str2bool,
+        default=defaults["freeze_lm"],
+        help="freeze language backbone",
     )
 
     parser.add_argument(
@@ -368,7 +435,10 @@ def build_parser(defaults: dict, description: str):
         help="prompt token cap",
     )
     parser.add_argument(
-        "--prompt_pad", type=str2bool, default=defaults["prompt_pad"], help="pad prompt tokens"
+        "--prompt_pad",
+        type=str2bool,
+        default=defaults["prompt_pad"],
+        help="pad prompt tokens",
     )
 
     parser.add_argument(

@@ -1,10 +1,7 @@
-"""Batch independent equal-sized visual attention segments using original eager kernels.
-Used only by the opt-in, frozen visual CUDA graph.
-"""
+"""Batched attention for equal-length visual segments."""
 
 from contextlib import contextmanager
 import types
-import torch
 
 
 def batched_attention(
@@ -13,7 +10,7 @@ def batched_attention(
     cu_seqlens,
     rotary_pos_emb=None,
     position_embeddings=None,
-    **kwargs
+    **kwargs,
 ):
     from transformers.models.qwen3_vl.modeling_qwen3_vl import (
         apply_rotary_pos_emb_vision,
@@ -27,7 +24,7 @@ def batched_attention(
             cu_seqlens,
             rotary_pos_emb=rotary_pos_emb,
             position_embeddings=position_embeddings,
-            **kwargs
+            **kwargs,
         )
     seq_length = hidden_states.shape[0]
     length = lengths[0]

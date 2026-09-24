@@ -1,9 +1,4 @@
-"""Reversible, single-model runtime optimizations for MM-TS.
-
-Enter after loading the backbone; load/save checkpoints inside or outside the
-context. Do not move the model, replace parameters, or use it concurrently from
-another thread while the context is active.
-"""
+"""Module offloading and CUDA graph contexts."""
 
 from contextlib import ExitStack, contextmanager
 
@@ -25,12 +20,7 @@ def _offload(module):
 
 @contextmanager
 def _unused_deepstack(visual):
-    """Skip discarded DeepStack outputs, preserving the checkpoint schema.
-
-    Keep inactive weights on CPU for strict round-trip checkpoint compatibility;
-    they are not part of the active forecasting module's parameter iterator.
-    The tied vocabulary head remains an alias of the prompt embedding.
-    """
+    """Store unused DeepStack weights on CPU and include them in state_dict."""
     mergers = visual.deepstack_merger_list
     indexes = visual.deepstack_visual_indexes
     if any(p.requires_grad for p in mergers.parameters()):
@@ -73,12 +63,11 @@ def _unused_deepstack(visual):
 def optimized_runtime(
     model, *, cached_visual=True, cuda_graphs=False, fast_vision=False
 ):
-    """Optimize one model while preserving its precision and training settings.
+    """Offload frozen modules and optionally capture CUDA graphs.
 
-    cached_visual=True offloads the unused visual encoder for cached training or
-    evaluation. Set it to False for predict_window. fast_vision additionally
-    enables the opt-in, version-guarded frozen-vision CUDA implementation.
-    Graphs keep one shape per train/eval mode; other shapes run eagerly.
+    cached_visual selects precomputed inputs or online visual encoding.
+    fast_vision enables the frozen visual kernel for online inference.
+    Module placement is restored on exit. Use one context per worker process.
     """
     if getattr(model.args, "model_parallel", False):
         raise ValueError("optimized_runtime supports single-device models only")

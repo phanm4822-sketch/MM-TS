@@ -1,4 +1,4 @@
-"""CUDA graph of the unchanged frozen visual forward, keyed by exact input grid."""
+"""Visual CUDA graphs indexed by input grid and tensor shape."""
 
 from contextlib import contextmanager
 from itertools import accumulate
@@ -77,7 +77,7 @@ class FrozenVisionGraph:
 @contextmanager
 def graphed_visual(visual):
     with batched_visual_attention(visual):
-        # Calling visual runs the attention-segment prehook; graph body bypasses CPU shape work.
+        # Prepare segment lengths before entering the captured forward pass.
         wrapper = FrozenVisionGraph(visual)
         original = visual.forward
         visual.forward = wrapper

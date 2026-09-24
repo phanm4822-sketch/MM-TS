@@ -2,6 +2,7 @@
 
 import os
 from contextlib import nullcontext
+
 from utils.config import get_args
 
 
@@ -32,7 +33,10 @@ def main():
     runtime = nullcontext()
     if args.optimize_runtime:
         from runtime import optimized_runtime
-        runtime = optimized_runtime(exp.model, cached_visual=True, cuda_graphs=args.cuda_graphs)
+
+        runtime = optimized_runtime(
+            exp.model, cached_visual=True, cuda_graphs=args.cuda_graphs
+        )
     with runtime:
         if args.eval_only:
             exp.load_checkpoint(args.ckpt_path)

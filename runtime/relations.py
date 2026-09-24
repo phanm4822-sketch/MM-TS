@@ -1,8 +1,4 @@
-"""Exact DTW loop compilation and CPU relation preprocessing.
-
-No fastmath, distance approximation, channel selection or window truncation.
-Numba is optional; the same loop runs in Python when it is unavailable.
-"""
+"""Numba acceleration for channel-relation computation."""
 
 import math
 from contextlib import contextmanager
@@ -39,7 +35,7 @@ def compute_three_mats(window, kind, dtw_band=8, dtw_eps=1e-8, verbose=False):
     pear = np.nan_to_num(pear, nan=0.0, posinf=0.0, neginf=0.0)
     centered = window - window.mean(axis=0, keepdims=True)
     cov = (centered.T @ centered) / max(window.shape[0] - 1, 1)
-    # Contiguous rows preserve the reference per-channel float64 reductions.
+    # Normalize contiguous float64 channel vectors.
     z = np.ascontiguousarray(window.T, dtype=np.float64)
     z = (z - z.mean(axis=1, keepdims=True)) / np.maximum(
         z.std(axis=1, keepdims=True), dtw_eps
@@ -63,8 +59,7 @@ def normalize_cov_to_01(cov, lo, hi):
 
 @contextmanager
 def accelerated_relations():
-    # These cache helpers are process-global. Use one inference worker per
-    # process; do not enter this context concurrently in multiple threads.
+    """Use compiled relation computation within one worker process."""
     import data_provider.cache.common as common
     import utils.heatmap_render as heat
 

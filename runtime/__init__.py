@@ -1,4 +1,4 @@
-"""Optional runtime acceleration without changing the forecasting recipe."""
+"""Cached and online inference utilities."""
 
 from .optimization import optimized_runtime
 from .online import predict_window

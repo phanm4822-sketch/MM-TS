@@ -4,9 +4,7 @@
 #include <ATen/Context.h>
 #include <c10/cuda/CUDAGuard.h>
 
-// Single-output-spatial-position specialization of the installed PyTorch
-// slow dilated Conv3D. Preserve its per-patch GEMM, layout, BF16 and beta=1;
-// replace 1024 scalar bias fills per patch with one batched tensor copy.
+// BF16 patch projection with batched bias initialization and per-patch GEMM.
 torch::Tensor exact_patch(torch::Tensor x, torch::Tensor weight, torch::Tensor bias) {
   TORCH_CHECK(x.is_cuda() && weight.is_cuda() && bias.is_cuda());
   TORCH_CHECK(x.device()==weight.device() && x.device()==bias.device());
@@ -22,8 +20,7 @@ torch::Tensor exact_patch(torch::Tensor x, torch::Tensor weight, torch::Tensor b
   auto input=x.const_data_ptr<at::BFloat16>();
   auto w=weight.const_data_ptr<at::BFloat16>();
   auto output=out.mutable_data_ptr<at::BFloat16>();
-  // Mirror PyTorch 2.9.1 CUDABlas.cpp's BF16 helper. Its internal C++
-  // wrapper is hidden in the wheel, so call the same cuBLAS API directly.
+  // Use the BF16 cuBLAS settings from PyTorch 2.9.1.
   TORCH_CHECK(at::globalContext().blasPreferredBackend()!=at::BlasBackend::Cublaslt,"requires original cuBLAS backend");
   auto handle=at::cuda::getCurrentCUDABlasHandle();
   cublasMath_t flags=CUBLAS_DEFAULT_MATH;

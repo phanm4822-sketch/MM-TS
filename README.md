@@ -5,7 +5,7 @@ Implementation of **MM-TS: Channel-Structured Vision-Language Modeling for Multi
 ## Key Designs
 
 - **Visual relation tokens:** DTW similarity, covariance and Pearson correlation
-  on FFT magnitudes form RGB images and video frames for the Qwen3-VL backbone.
+  on FFT magnitudes form RGB images and video frames for Qwen3-VL.
 - **Structured attention bias:** The same relations guide temporal-token attention,
   with local relations in diagonal patch blocks and global relations in off-diagonal blocks.
 
@@ -13,7 +13,7 @@ Implementation of **MM-TS: Channel-Structured Vision-Language Modeling for Multi
 
 ### 1. Installation
 
-Use Python 3.10 or later and matching CUDA builds of PyTorch and torchvision.
+Use Python 3.10 or later with CUDA builds of PyTorch and torchvision.
 
 ```bash
 git clone https://github.com/phanm4822-sketch/MM-TS.git
@@ -21,10 +21,8 @@ cd MM-TS
 pip install -r requirements.txt
 ```
 
-The implementation uses `transformers==4.57.3`.
-
 Download [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
-with its weights, configuration, processor and tokenizer, then set:
+and set its local directory:
 
 ```bash
 export QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct
@@ -32,9 +30,8 @@ export QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct
 
 ### 2. Data Preparation
 
-Download the benchmark datasets using the
-[PatchTST data links](https://github.com/yuqinie98/PatchTST#supervised-learning)
-and arrange the CSV files as follows:
+Download the [benchmark datasets](https://drive.google.com/drive/folders/1ZOYpTUa82_jCcxIdTmyr0LXQfvaM9vIy)
+and place the CSV files under `datasets/`:
 
 ```text
 datasets/
@@ -48,144 +45,75 @@ datasets/
   national_illness.csv
 ```
 
-Each file should contain a `date` column followed by numeric channel columns.
-Standardization is fitted on the training split. Relation matrices and frozen
-visual features are cached automatically on the first run and reused across seeds.
-Electricity uses sharded caches; all datasets share the same model and training loop.
-If the backbone or image rendering settings change, use a separate `--cache_dir`
-or rebuild with `--rebuild_cache true`.
+Each CSV has a `date` column followed by the variables. Standardization uses
+the training split. Relation matrices and frozen visual features are cached on
+the first run; Electricity uses sharded caches. Use `--rebuild_cache true`
+after changing the backbone or image rendering settings.
 
 ### 3. Training
 
-Run the scripts from the repository root with Bash:
+Performance scripts are in `scripts/MMTS/`. Run them from the repository root:
 
 ```bash
-# ETTh1, all four horizons, seed 2026
+# ETTh1, four horizons, seed 2026
 GPUS=0 bash scripts/MMTS/etth1.sh
 
 # All eight datasets
 bash scripts/run_all.sh
 
 # Select datasets, horizon and seed
-DATASETS="etth1 ettm1 weather" HORIZONS="96" SEEDS=2026 bash scripts/run_all.sh
+DATASETS="etth1 ettm1 weather" HORIZONS=96 SEEDS=2026 bash scripts/run_all.sh
 
-# Run five seeds
+# Five seeds
 SEEDS="2026 2022 2023 2024 2025" bash scripts/run_all.sh
-
-# Print the commands without running them
-bash scripts/MMTS/electricity.sh --dry-run
 ```
 
-The scripts use input length 96 and horizons 96, 192, 336 and 720. For ILI, the
-input length is 104 and the horizons are 24, 36, 48 and 60. Dataset-specific
-hyperparameters are set in `scripts/MMTS/`.
-Use `SEEDS` and `HORIZONS` to select runs. Other options can be appended to a
-script, for example `--num_workers 4`; see `python run.py --help` for the full list.
+The scripts use input length 96 and horizons 96, 192, 336 and 720.
+ILI uses input length 104 and horizons 24, 36, 48 and 60.
+Hyperparameters are set in each dataset script. Additional arguments can be
+appended to a script; see `python run.py --help`.
 
-The checkpoint with the lowest validation MSE is evaluated on the test split.
-Results and checkpoints are saved under:
-
-```text
-runs/performance/<dataset>/seed<seed>/pred<horizon>/<source_dataset>/
-  metrics.latest.json
-  checkpoints/best.latest.pt
-```
-
-Timestamped copies are retained, and each result includes the run configuration.
+The checkpoint with the lowest validation MSE is selected for testing.
+Results and checkpoints are saved under
+`runs/performance/<dataset>/seed<seed>/pred<horizon>/<source_dataset>/`
+as `metrics.latest.json` and `checkpoints/best.latest.pt`.
 
 ### 4. Evaluation
 
-Use the same dataset, horizon and configuration as the saved checkpoint:
+Use the dataset, horizon and model configuration of the saved checkpoint:
 
 ```bash
 HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
   --eval_only true --ckpt_path /path/to/best.latest.pt
 ```
 
-## Code Structure
+## Runtime
 
-```text
-run.py             training and evaluation entry point
-models/            MM-TS model and Qwen3-VL integration
-layers/            normalization, patch projection and token fusion
-exp/               training, validation and testing
-data_provider/     datasets, loaders and cache builders
-utils/             prompts, relation biases and attention utilities
-scripts/MMTS/      performance scripts for each dataset
-```
-
-## Optional Runtime Optimizations
-
-The default entry point and checkpoint format are unchanged. Structural-bias
-assembly uses indexed gathers and the decoder no longer retains unused hidden
-states. These changes do not alter the forecast, attention mask or training recipe.
-
-For cached training/evaluation, offload frozen prompt embeddings and the unused
-visual encoder, and skip discarded DeepStack outputs:
+`--optimize_runtime true` offloads frozen modules during cached training and
+evaluation. Add `--cuda_graphs true` for fixed-shape CUDA graph replay with
+PyTorch 2.9.1. These options use a single GPU; graph buffers require extra memory.
 
 ```bash
-HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh --optimize_runtime true
-
-# Additionally replay fixed-shape CUDA graphs (uses extra graph-pool memory).
 HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
   --optimize_runtime true --cuda_graphs true
 ```
 
-The graph path requires PyTorch 2.9.1. Graphs preserve the caller's precision and dropout RNG, retain all windows and
-channels, and use eager execution for differently shaped batches, including the
-last incomplete batch. Captured inputs and parameters must stay on one GPU;
-model parallelism is not supported by this optional path. Disable graphs if the
-additional graph pool does not fit. No batch size or precision is changed
-automatically. The runtime context restores module placement on exit.
-
-Inactive DeepStack weights are retained on CPU for strict compatibility with
-existing checkpoints. They are excluded from the active module's parameter
-iterator while optimized execution is enabled; they still occupy CPU memory and
-checkpoint storage. The vocabulary head shares the prompt embedding, so it does
-not count as an additional set of parameters. Frozen active weights still count
-toward total parameters.
-
-For online forecasting, `runtime.predict_window` constructs the same complete
-FFT relation grids and frozen visual features as the cache path. Supply float32
-observed windows standardized using **training-split** means and standard
-deviations. The returned predictions remain in standardized coordinates.
+For online inference, pass float32 windows of shape `[B, L, C]` standardized
+with training-split statistics. Predictions use the same standardized scale.
+The model should have its checkpoint loaded and channels configured.
 
 ```python
 import torch
 from runtime import optimized_runtime, predict_window
 
-# model: an initialized MM-TS Model with trained weights loaded and channels configured
-# windows: float32 NumPy array [batch, seq_len, num_vars], standardized as above
 model.eval()
-with torch.inference_mode(), optimized_runtime(
-    model, cached_visual=False, cuda_graphs=True, fast_vision=False
-):
+with torch.inference_mode(), optimized_runtime(model, cached_visual=False):
     prediction = predict_window(model, windows).clone()
 ```
 
-Keep the context open across requests to reuse graphs. Clone graph outputs if
-retaining them across subsequent calls. Use one model per worker process; the
-relation/vision contexts are not intended for concurrent threads in one process.
-
-```bash
-pip install -r requirements-optimized.txt
-```
-
-The optional dependencies compile the unchanged DTW loop without fastmath.
-Without Numba the same loop runs in Python. `fast_vision=True` also enables a
-frozen BF16 patch-embedding extension and visual CUDA graphs. This specialization
-is explicitly limited to the validated **PyTorch 2.9.1+cu126, Transformers 4.57.3,
-Ada GPU** environment; other environments should keep it disabled. It needs a
-C++ compiler and CUDA headers, builds on first use, and stores compiled artifacts
-in PyTorch's extension cache (configurable with `TORCH_EXTENSIONS_DIR`). Build and
-graph warm-up costs are separate from steady-state inference.
-
-Run the CPU equivalence and strict-checkpoint checks without downloading weights:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-`runtime/` contains the optional execution code; `tests/` contains correctness
-checks. Experiment logs, measurements, datasets, caches, checkpoints and compiled
-binaries are not part of this repository.
+Keep the context open across requests and use one model per worker process.
+Online DTW compilation uses Numba. The `fast_vision=True` option additionally
+uses a frozen BF16 visual kernel and visual CUDA graphs on Linux with
+PyTorch 2.9.1+cu126, Transformers 4.57.3 and an Ada GPU.
+Install `requirements-optimized.txt` for these dependencies; the visual
+extension requires a C++ compiler and builds on first use.

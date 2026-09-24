@@ -250,7 +250,7 @@ def encode_text_batch(
                 }
             )
 
-    # Prompt lookup can reside on CPU when the frozen embedding is offloaded.
+    # Look up prompts on the embedding's device.
     base = model.model
     if isinstance(base, torch.nn.DataParallel):
         base = base.module

@@ -1,4 +1,4 @@
-"""Optional BF16 frozen patch embedding for the validated CUDA runtime."""
+"""BF16 patch projection for frozen Qwen3-VL visual weights."""
 
 import os
 import sys
@@ -15,7 +15,7 @@ def load_extension():
     if _EXTENSION is None:
         from torch.utils.cpp_extension import CUDA_HOME, load
 
-        # Discover wheel-installed CUDA headers without machine-specific paths.
+        # CUDA headers from installed packages or CUDA_HOME.
         roots = {Path(p) for p in sys.path if p and Path(p).is_dir()}
         includes = {
             str(p) for root in roots for p in (root / "nvidia").glob("*/include")
@@ -53,11 +53,7 @@ def load_extension():
 
 @contextmanager
 def exact_patch_embedding(visual):
-    """Explicit opt-in: require the tested wheel, precision and convolution.
-
-    This specialization preserves PyTorch's per-patch cuBLAS accumulation.
-    It is not a generic substitute for Conv3D or a differentiable kernel.
-    """
+    """Replace frozen BF16 patch projection with per-patch cuBLAS GEMM."""
     import transformers
 
     if (
@@ -66,7 +62,7 @@ def exact_patch_embedding(visual):
         or torch.cuda.get_device_capability() != (8, 9)
     ):
         raise RuntimeError(
-            "fast_vision requires torch 2.9.1+cu126, transformers 4.57.3 and an Ada GPU; disable fast_vision otherwise"
+            "fast_vision requires torch 2.9.1+cu126, transformers 4.57.3 and an Ada GPU"
         )
     patch = visual.patch_embed
     proj = patch.proj

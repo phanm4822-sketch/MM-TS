@@ -86,9 +86,7 @@ def validate_checkpoint_attention(args, checkpoint_args: dict) -> None:
             mismatches.append(f"{name}: checkpoint={saved}, requested={requested}")
     if mismatches:
         raise ValueError(
-            "Checkpoint attention configuration mismatch (" + "; ".join(mismatches) + "). "
-            "Load a checkpoint with a matching model configuration. "
-            "Checkpoints without these settings are treated as channel_major + causal."
+            "Checkpoint attention configuration mismatch: " + "; ".join(mismatches)
         )
 
 
@@ -120,6 +118,5 @@ def validate_checkpoint_forecasting(args, checkpoint_args: dict) -> None:
             mismatches.append("prompt_template_version differs or is missing")
     if mismatches:
         raise ValueError(
-            "Checkpoint forecasting configuration mismatch (" + "; ".join(mismatches) + "). "
-            "Load a checkpoint with a matching model configuration."
+            "Checkpoint forecasting configuration mismatch: " + "; ".join(mismatches)
         )

@@ -46,8 +46,7 @@ def build_ts_attention_bias(
     if vid.shape[0] != img.shape[0]:
         raise ValueError("img_stats and vid_stats must have the same batch size")
 
-    # Gather the same blocks without P squared Python assignments. Keep the
-    # statistic combination above unchanged, including its arithmetic order.
+    # Local relations fill same-patch blocks; global relations fill the rest.
     ids = torch.arange(num_patches * num_vars, device=device)
     if token_layout == "patch_major":
         patch, channel = ids // num_vars, ids % num_vars
