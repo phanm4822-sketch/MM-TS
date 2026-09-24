@@ -1,5 +1,3 @@
-"""Shared dataset splits, scaling and spectral relations for both cache backends."""
-
 import argparse
 import json
 import os

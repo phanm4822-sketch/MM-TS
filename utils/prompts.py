@@ -1,5 +1,3 @@
-"""One text template for the forecasting input window."""
-
 import torch
 
 

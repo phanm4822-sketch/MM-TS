@@ -1,5 +1,3 @@
-"""Module offloading and CUDA graph contexts."""
-
 from contextlib import ExitStack, contextmanager
 
 import torch
@@ -20,7 +18,6 @@ def _offload(module):
 
 @contextmanager
 def _unused_deepstack(visual):
-    """Store unused DeepStack weights on CPU and include them in state_dict."""
     mergers = visual.deepstack_merger_list
     indexes = visual.deepstack_visual_indexes
     if any(p.requires_grad for p in mergers.parameters()):
@@ -63,12 +60,6 @@ def _unused_deepstack(visual):
 def optimized_runtime(
     model, *, cached_visual=True, cuda_graphs=False, fast_vision=False
 ):
-    """Offload frozen modules and optionally capture CUDA graphs.
-
-    cached_visual selects precomputed inputs or online visual encoding.
-    fast_vision enables the frozen visual kernel for online inference.
-    Module placement is restored on exit. Use one context per worker process.
-    """
     if getattr(model.args, "model_parallel", False):
         raise ValueError("optimized_runtime supports single-device models only")
     if fast_vision and cached_visual:

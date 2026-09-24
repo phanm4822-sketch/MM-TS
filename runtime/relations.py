@@ -1,5 +1,3 @@
-"""Numba acceleration for channel-relation computation."""
-
 import math
 from contextlib import contextmanager
 
@@ -59,7 +57,6 @@ def normalize_cov_to_01(cov, lo, hi):
 
 @contextmanager
 def accelerated_relations():
-    """Use compiled relation computation within one worker process."""
     import data_provider.cache.common as common
     import utils.heatmap_render as heat
 

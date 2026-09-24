@@ -1,5 +1,3 @@
-"""BF16 patch projection for frozen Qwen3-VL visual weights."""
-
 import os
 import sys
 from contextlib import contextmanager
@@ -53,7 +51,6 @@ def load_extension():
 
 @contextmanager
 def exact_patch_embedding(visual):
-    """Replace frozen BF16 patch projection with per-patch cuBLAS GEMM."""
     import transformers
 
     if (

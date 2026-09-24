@@ -1,5 +1,3 @@
-"""Batched attention for equal-length visual segments."""
-
 from contextlib import contextmanager
 import types
 

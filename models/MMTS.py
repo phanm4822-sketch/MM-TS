@@ -1,5 +1,3 @@
-"""MM-TS forecasting model."""
-
 from contextlib import nullcontext
 import json
 import math

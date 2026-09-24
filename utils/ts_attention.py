@@ -1,5 +1,3 @@
-"""Token layout and visibility for the observed forecasting window."""
-
 import torch
 
 

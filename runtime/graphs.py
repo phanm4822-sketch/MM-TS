@@ -1,5 +1,3 @@
-"""CUDA graphs with CPU prompt/relation preparation outside capture."""
-
 import inspect
 from contextlib import contextmanager
 

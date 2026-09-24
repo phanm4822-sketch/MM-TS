@@ -1,5 +1,3 @@
-"""Resolve data paths and prepare reusable input caches before training."""
-
 import os
 import subprocess
 import sys

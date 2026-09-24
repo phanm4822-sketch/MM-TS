@@ -1,5 +1,3 @@
-"""Online forecasts from standardized input windows."""
-
 import numpy as np
 import torch
 

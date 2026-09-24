@@ -1,5 +1,3 @@
-"""Visual CUDA graphs indexed by input grid and tensor shape."""
-
 from contextlib import contextmanager
 from itertools import accumulate
 

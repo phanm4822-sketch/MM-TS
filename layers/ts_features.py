@@ -1,5 +1,3 @@
-"""Temporal patch embedding and a shared flatten/linear forecasting head."""
-
 import torch
 from utils.ts_utils import patchify_ts
 from utils.ts_attention import reorder_ts_tokens

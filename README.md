@@ -4,116 +4,51 @@ Implementation of **MM-TS: Channel-Structured Vision-Language Modeling for Multi
 
 ## Key Designs
 
-- **Visual relation tokens:** DTW similarity, covariance and Pearson correlation
-  on FFT magnitudes form RGB images and video frames for Qwen3-VL.
-- **Structured attention bias:** The same relations guide temporal-token attention,
-  with local relations in diagonal patch blocks and global relations in off-diagonal blocks.
+- **Visual relation tokens:** DTW similarity, covariance and Pearson correlation on FFT magnitudes form RGB images and video frames for Qwen3-VL.
+- **Structured attention bias:** Local relations fill diagonal patch blocks; global relations fill off-diagonal blocks in temporal-token attention.
 
 ## Getting Started
 
-### 1. Installation
+1. Install the dependencies with Python 3.10 or later and CUDA builds of PyTorch and torchvision.
 
-Use Python 3.10 or later with CUDA builds of PyTorch and torchvision.
+   ```bash
+   git clone https://github.com/phanm4822-sketch/MM-TS.git
+   cd MM-TS
+   pip install -r requirements.txt
+   ```
 
-```bash
-git clone https://github.com/phanm4822-sketch/MM-TS.git
-cd MM-TS
-pip install -r requirements.txt
-```
+2. Download [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct) and set its local path:
 
-Download [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
-and set its local directory:
+   ```bash
+   export QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct
+   ```
 
-```bash
-export QWEN_DIR=/path/to/Qwen3-VL-2B-Instruct
-```
+3. Download the [benchmark datasets](https://drive.google.com/drive/folders/1ZOYpTUa82_jCcxIdTmyr0LXQfvaM9vIy) and place the CSV files under `datasets/`. Each CSV has a `date` column followed by the variables.
 
-### 2. Data Preparation
+4. Run a dataset script from the repository root:
 
-Download the [benchmark datasets](https://drive.google.com/drive/folders/1ZOYpTUa82_jCcxIdTmyr0LXQfvaM9vIy)
-and place the CSV files under `datasets/`:
+   ```bash
+   bash scripts/MMTS/weather.sh
+   ```
 
-```text
-datasets/
-  ETTh1.csv
-  ETTh2.csv
-  ETTm1.csv
-  ETTm2.csv
-  weather.csv
-  electricity.csv
-  exchange_rate.csv
-  national_illness.csv
-```
+Scripts are in `scripts/MMTS/`. The default input length is 96, with prediction lengths 96, 192, 336 and 720; ILI uses input length 104 and prediction lengths 24, 36, 48 and 60. The default seed is 2026.
 
-Each CSV has a `date` column followed by the variables. Standardization uses
-the training split. Relation matrices and frozen visual features are cached on
-the first run; Electricity uses sharded caches. Use `--rebuild_cache true`
-after changing the backbone or image rendering settings.
+Standardization uses the training split. Visual features and relations are cached on the first run. Set `--rebuild_cache true` after changing the backbone or rendering settings.
 
-### 3. Training
-
-Performance scripts are in `scripts/MMTS/`. Run them from the repository root:
+## Training and Evaluation
 
 ```bash
-# ETTh1, four horizons, seed 2026
-GPUS=0 bash scripts/MMTS/etth1.sh
-
-# All eight datasets
+# All datasets
 bash scripts/run_all.sh
 
-# Select datasets, horizon and seed
-DATASETS="etth1 ettm1 weather" HORIZONS=96 SEEDS=2026 bash scripts/run_all.sh
+# Select datasets, prediction length and seeds
+DATASETS="etth1 ettm1 weather" HORIZONS=96 SEEDS="2026 2022 2023 2024 2025" bash scripts/run_all.sh
 
-# Five seeds
-SEEDS="2026 2022 2023 2024 2025" bash scripts/run_all.sh
-```
-
-The scripts use input length 96 and horizons 96, 192, 336 and 720.
-ILI uses input length 104 and horizons 24, 36, 48 and 60.
-Hyperparameters are set in each dataset script. Additional arguments can be
-appended to a script; see `python run.py --help`.
-
-The checkpoint with the lowest validation MSE is selected for testing.
-Results and checkpoints are saved under
-`runs/performance/<dataset>/seed<seed>/pred<horizon>/<source_dataset>/`
-as `metrics.latest.json` and `checkpoints/best.latest.pt`.
-
-### 4. Evaluation
-
-Use the dataset, horizon and model configuration of the saved checkpoint:
-
-```bash
+# Evaluate a checkpoint
 HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
   --eval_only true --ckpt_path /path/to/best.latest.pt
 ```
 
-## Runtime
+Hyperparameters are set in each dataset script. Additional arguments can be appended to a script; see `python run.py --help`. Evaluation uses the dataset, horizon and model configuration of the checkpoint.
 
-`--optimize_runtime true` offloads frozen modules during cached training and
-evaluation. Add `--cuda_graphs true` for fixed-shape CUDA graph replay with
-PyTorch 2.9.1. These options use a single GPU; graph buffers require extra memory.
-
-```bash
-HORIZONS=96 SEEDS=2026 bash scripts/MMTS/etth1.sh \
-  --optimize_runtime true --cuda_graphs true
-```
-
-For online inference, pass float32 windows of shape `[B, L, C]` standardized
-with training-split statistics. Predictions use the same standardized scale.
-The model should have its checkpoint loaded and channels configured.
-
-```python
-import torch
-from runtime import optimized_runtime, predict_window
-
-model.eval()
-with torch.inference_mode(), optimized_runtime(model, cached_visual=False):
-    prediction = predict_window(model, windows).clone()
-```
-
-Keep the context open across requests and use one model per worker process.
-Online DTW compilation uses Numba. The `fast_vision=True` option additionally
-uses a frozen BF16 visual kernel and visual CUDA graphs on Linux with
-PyTorch 2.9.1+cu126, Transformers 4.57.3 and an Ada GPU.
-Install `requirements-optimized.txt` for these dependencies; the visual
-extension requires a C++ compiler and builds on first use.
+The checkpoint with the lowest validation MSE is selected for testing. Results are saved under `runs/performance/<dataset>/seed<seed>/pred<horizon>/<source_dataset>/` as `metrics.latest.json` and `checkpoints/best.latest.pt`.

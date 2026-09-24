@@ -1,5 +1,3 @@
-"""Training, validation and testing for MM-TS."""
-
 import copy
 import json
 import os

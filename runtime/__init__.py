@@ -1,5 +1,3 @@
-"""Cached and online inference utilities."""
-
 from .optimization import optimized_runtime
 from .online import predict_window
 

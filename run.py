@@ -1,5 +1,3 @@
-"""Command-line entry point for MM-TS forecasting."""
-
 import os
 from contextlib import nullcontext
 

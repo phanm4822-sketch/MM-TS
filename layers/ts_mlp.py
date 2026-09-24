@@ -1,5 +1,3 @@
-"""Shared patch projection for all channels."""
-
 from torch import nn
 
 
