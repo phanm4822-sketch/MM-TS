@@ -30,7 +30,7 @@ def main():
     exp = Exp_Main(args)
     runtime = nullcontext()
     if args.optimize_runtime:
-        from runtime import optimized_runtime
+        from utils.runtime import optimized_runtime
 
         runtime = optimized_runtime(
             exp.model, cached_visual=True, cuda_graphs=args.cuda_graphs
